@@ -1,0 +1,34 @@
+# ── Build Stage ──────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install root workspace + shared + agent-api deps
+COPY package.json package-lock.json* ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/agent-api/package.json packages/agent-api/
+RUN npm ci --ignore-scripts --workspace=packages/shared --workspace=packages/agent-api
+
+COPY packages/shared packages/shared
+COPY packages/agent-api packages/agent-api
+
+# ── Production Stage ──────────────────────────────────────────────────────────
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+RUN addgroup -S app && adduser -S app -G app
+
+COPY --from=builder /app/node_modules node_modules
+COPY --from=builder /app/packages/shared packages/shared
+COPY --from=builder /app/packages/agent-api packages/agent-api
+COPY --from=builder /app/package.json .
+
+ENV NODE_ENV=production
+ENV AGENT_API_PORT=4002
+EXPOSE 4002
+
+USER app
+
+# Runs the Agent API server (HTTP + BullMQ worker + scheduler in one process)
+CMD ["node", "--import", "tsx", "packages/agent-api/src/server.ts"]

@@ -1,0 +1,33 @@
+{
+  "name": "github-copilot-agent-orchestra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Agent Orchestration Platform — Autonomous AI workflow engine powered by GitHub Copilot SDK",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=packages/agent-ui & npm run dev --workspace=packages/agent-api",
+    "dev:api": "npm run dev --workspace=packages/agent-api",
+    "dev:ui": "npm run dev --workspace=packages/agent-ui",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "lint:fix": "eslint packages/*/src/**/*.ts --fix",
+    "format": "prettier --write \"packages/*/src/**/*.ts\"",
+    "format:check": "prettier --check \"packages/*/src/**/*.ts\"",
+    "db:generate": "npm run db:generate --workspace=packages/agent-api",
+    "db:push": "npm run db:push --workspace=packages/agent-api",
+    "db:seed": "npm run db:seed --workspace=packages/agent-api"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.0",
+    "prettier": "^3.8.1",
+    "shadcn": "^4.1.2",
+    "typescript-eslint": "^8.58.0"
+  }
+}

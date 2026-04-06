@@ -1,0 +1,66 @@
+# Agent Orchestration Platform values template
+# Copy to values.yaml and fill in secrets:
+#   cp values.yaml.template values.yaml
+# values.yaml is .gitignored — NEVER commit real credentials.
+
+namespace: agent-orchestra
+
+api:
+  image: agent-orchestra-api:latest
+  replicas: 2
+  port: 4002
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 200m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+ui:
+  image: agent-orchestra-ui:latest
+  replicas: 1
+  port: 3002
+  nodePort: 30002
+
+# Trading Platform API URL (for agent tools to fetch prices, execute trades, etc.)
+tradingApiUrl: "http://localhost:4001"
+
+postgres:
+  image: pgvector/pgvector:pg16
+  storage: 5Gi
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilization: 70
+
+config:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  AGENT_API_PORT: "4002"
+  MAX_CONCURRENT_AGENTS: "10"
+  DEFAULT_AGENT_QUOTA: "50"
+  DEFAULT_AGENT_MODEL: "gpt-4.1"
+
+secrets:
+  # PostgreSQL password
+  POSTGRES_PASSWORD: "CHANGE_ME"
+  # Agent Platform DB connection
+  AGENT_DATABASE_URL: "postgresql://ai_trader:CHANGE_ME@postgres:5432/agent_db"
+  # Redis connection
+  REDIS_URL: "redis://redis.ai-trader:6379"
+  # JWT secret for this platform
+  JWT_SECRET: ""
+  # AES-256-GCM encryption key
+  ENCRYPTION_KEY: ""
+  # GitHub token for Copilot SDK
+  GITHUB_TOKEN: ""

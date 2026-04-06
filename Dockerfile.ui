@@ -1,0 +1,35 @@
+# ── Build Stage ────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy root workspace config + all workspace package.json files for npm ci
+COPY package.json package-lock.json* ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/ui-base/package.json packages/ui-base/
+COPY packages/agent-api/package.json packages/agent-api/
+COPY packages/agent-ui/package.json packages/agent-ui/
+RUN npm ci --ignore-scripts
+
+# Copy source (shared + ui-base + agent-ui needed at build time)
+COPY packages/shared packages/shared
+COPY packages/ui-base packages/ui-base
+COPY packages/agent-ui packages/agent-ui
+RUN npm run build --workspace=packages/agent-ui
+
+# ── Production Stage ──────────────────────────────────────────────────────────
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+RUN addgroup -S app && adduser -S app -G app
+
+COPY --from=builder /app/packages/agent-ui/.output .output
+
+ENV NODE_ENV=production
+ENV NITRO_PORT=3002
+EXPOSE 3002
+
+USER app
+
+CMD ["node", ".output/server/index.mjs"]
