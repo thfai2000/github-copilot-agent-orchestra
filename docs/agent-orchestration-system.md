@@ -1,10 +1,12 @@
 # Agent Orchestration Platform — System Design
 
-> Part of [Architecture v4.0](ARCHITECTURE.md)
+> Separate repository: `github-copilot-agent-orchestra`
 
 ## Overview
 
-The Agent Orchestration Platform is a general-purpose workflow engine for AI agents powered by GitHub Copilot. It manages agent definitions, workflow configurations (triggers + ordered steps), workflow executions (Copilot sessions), credentials, and quotas. It is **trading-unrelated** — agents can be configured for any domain.
+The Agent Orchestration Platform is a general-purpose workflow engine for AI agents powered by GitHub Copilot. It manages agent definitions, workflow configurations (triggers + ordered steps), workflow executions (Copilot sessions), credentials, and quotas. It is **domain-agnostic** — agents can be configured for any domain.
+
+Trading and market data capabilities are **not built-in**. They are consumed from external platforms via the Model Context Protocol (MCP). For trading, agents connect to the [AI Trader Simulation](https://github.com/user/ai-trader-simulation) MCP server.
 
 ---
 
@@ -421,7 +423,53 @@ Every 30 seconds:
 
 ## Copilot Session Setup
 
-Each workflow step runs as a Copilot session. The setup process:
+Each workflow step runs as a Copilot session with two types of tools:
+
+### Built-in Tools (5 tools)
+These operate on the agent-orchestra's own database (`agent_db`):
+
+| Tool | Description |
+|------|-------------|
+| `schedule_next_wakeup` | Self-scheduling via cron triggers |
+| `manage_webhook_trigger` | Webhook lifecycle management |
+| `record_trade_decision` | Decision audit trail (JSONB) |
+| `memory_store` | Store memories with pgvector embeddings |
+| `memory_retrieve` | Semantic similarity search over memories |
+
+### MCP Trading Tools (13 tools, optional)
+When agent credentials include `TRADING_API_KEY` or `TRADER_ID`, the workflow engine spawns the Trading Platform's MCP server as a child process (stdio transport) and loads 13 additional trading tools:
+
+| Category | Tools |
+|----------|-------|
+| Market Data | `fetch_current_prices`, `fetch_historical_data`, `technical_indicators` |
+| Trading | `execute_trade` |
+| Portfolio | `get_portfolio_state`, `calculate_trade_cost`, `check_portfolio_constraints`, `calculate_position_size` |
+| News | `get_latest_news`, `fetch_verified_news`, `assess_news_credibility` |
+| Blog | `publish_blog_post` |
+| Leaderboard | `get_leaderboard` |
+
+### Tool Loading Flow
+
+```
+Workflow step starts
+  │
+  ▼
+1. Create built-in tools (5 tools, always available)
+2. Check agent credentials for TRADING_API_KEY / TRADER_ID
+  │
+  ├── Has credentials → Spawn MCP server subprocess
+  │     Agent API ──(stdio)──▶ MCP Server ──(HTTP)──▶ Trading API
+  │     Load 13 MCP tools + merge with built-in tools
+  │
+  └── No credentials → Continue with built-in tools only
+  │
+  ▼
+3. Initialize Copilot session with merged tools
+4. Execute session, capture output + reasoning trace
+5. Cleanup MCP child process (if spawned)
+```
+
+### Session Setup Process
 
 1. **Clone Git repo** to temp directory
    ```
@@ -433,25 +481,36 @@ Each workflow step runs as a Copilot session. The setup process:
    # /tmp/session-{execId}/.env
    TRADING_API_KEY=ak_live_xxxxx
    TRADING_API_URL=https://trading.local/api
-   NEWS_API_KEY=xxxxx
    ```
 
-3. **Initialize Copilot session**
+3. **Create tools** (built-in + MCP)
+   ```typescript
+   const builtInTools = createAgentTools(credentials, context);
+   const mcp = await createMcpTradingTools({
+     command: 'node',
+     args: ['--import', 'tsx', 'packages/trading-api/src/mcp-server.ts'],
+     env: { TRADING_API_URL, TRADING_API_KEY, TRADER_ID },
+   });
+   const allTools = [...builtInTools, ...mcp.tools];
+   ```
+
+4. **Initialize Copilot session**
    ```typescript
    const session = copilot.createSession({
-     agent: readFile(agentFilePath),  // .github/agents/normal.md
-     skills: skillsPaths.map(p => readFile(p)),
-     prompt: resolvedPrompt,  // Template with <PRECEDENT_OUTPUT> replaced
-     workingDirectory: `/tmp/session-${execId}/`,
+     model: 'gpt-4.1',
+     tools: allTools,
+     systemMessage: { ... },
+     onPermissionRequest: approveAll,
    });
    ```
 
-4. **Execute and capture output**
+5. **Execute and capture output**
    - Full response text → `step_executions.output`
    - Tool calls + reasoning → `step_executions.reasoning_trace` (JSONB)
 
-5. **Cleanup**
+6. **Cleanup**
    ```
+   await mcpCleanup(); // terminate MCP child process
    rm -rf /tmp/session-{execId}/
    ```
 

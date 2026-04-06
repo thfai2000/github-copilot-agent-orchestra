@@ -15,6 +15,7 @@ import { getRedisConnection } from './redis.js';
 import { CopilotClient, approveAll } from '@github/copilot-sdk';
 import { prepareAgentWorkspace } from './agent-workspace.js';
 import { createAgentTools } from './agent-tools.js';
+import { createMcpTradingTools } from './mcp-client.js';
 
 const logger = createLogger('workflow-engine');
 
@@ -296,6 +297,7 @@ async function executeCopilotSession(params: {
   });
 
   const toolCalls: Array<{ tool: string; args: unknown }> = [];
+  let mcpCleanup: (() => Promise<void>) | null = null;
 
   try {
     // 2. Build system message from agent personality + skills
@@ -304,12 +306,40 @@ async function executeCopilotSession(params: {
       : '';
     const systemContent = `${workspace.agentMarkdown}${skillsContent}`;
 
-    // 3. Create agent tools
-    const tools = createAgentTools(credentials, {
+    // 3. Create agent tools (built-in + MCP trading tools)
+    const builtInTools = createAgentTools(credentials, {
       agentId: agent.id,
       workflowId,
       executionId,
     });
+
+    // 3.1 Connect to Trading Platform MCP server for market/trading tools
+    const tradingApiUrl = credentials.get('TRADING_API_URL') ?? process.env.TRADING_API_URL ?? 'http://localhost:4001';
+    const tradingApiKey = credentials.get('TRADING_API_KEY') ?? '';
+    const traderId = credentials.get('TRADER_ID') ?? '';
+
+    let allTools = builtInTools;
+
+    if (tradingApiKey || traderId) {
+      try {
+        const mcp = await createMcpTradingTools({
+          command: 'node',
+          args: ['--import', 'tsx', 'packages/trading-api/src/mcp-server.ts'],
+          env: {
+            TRADING_API_URL: tradingApiUrl,
+            TRADING_API_KEY: tradingApiKey,
+            TRADER_ID: traderId,
+          },
+        });
+        allTools = [...builtInTools, ...mcp.tools];
+        mcpCleanup = mcp.cleanup;
+        logger.info({ mcpToolCount: mcp.tools.length }, 'MCP trading tools loaded');
+      } catch (mcpErr) {
+        logger.warn({ error: mcpErr }, 'Failed to connect to Trading MCP server, continuing with built-in tools only');
+      }
+    }
+
+    const tools = allTools;
 
     // 4. Initialize Copilot client + session
     const client = new CopilotClient();
@@ -383,6 +413,7 @@ async function executeCopilotSession(params: {
       },
     };
   } finally {
+    if (mcpCleanup) await mcpCleanup();
     await workspace.cleanup();
     await releaseSessionLock(agent.id);
   }
