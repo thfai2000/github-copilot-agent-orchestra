@@ -3,13 +3,17 @@
 import { defineTool, type Tool } from '@github/copilot-sdk';
 import { z } from 'zod';
 import { eq, and, sql } from 'drizzle-orm';
-import { createLogger, encrypt } from '@ai-trader/shared';
+import { createLogger, encrypt, decrypt } from '@ai-trader/shared';
 import { db } from '../database/index.js';
 import {
   triggers, webhookRegistrations, agentDecisions, agentMemories,
   workflows, workflowSteps, agentVariables, userVariables,
+  credentialAccessLogs, workspaceSecuritySettings,
+  workspaceVariables,
 } from '../database/schema.js';
 import { generateEmbedding } from './embedding-service.js';
+import { emitEvent, EVENT_NAMES } from './system-events.js';
+import { auditCredentialRequest } from './credential-audit.js';
 
 const logger = createLogger('agent-tools');
 
@@ -21,6 +25,7 @@ export interface AgentToolContext {
   workflowId: string;
   executionId?: string;
   userId?: string;
+  workspaceId?: string;
 }
 
 /**
@@ -38,6 +43,7 @@ export interface AgentToolContext {
  *   - edit_workflow           — Edit workflow triggers and steps
  *   - read_variables          — Read agent/user variables
  *   - edit_variables          — Create/update/delete variables
+ *   - get_credentials_into_env — Securely request credentials into environment (audited)
  */
 export function createAgentTools(
   _credentials: Map<string, string>,
@@ -566,6 +572,181 @@ export function createAgentTools(
           return { deleted: true };
         }
         return { error: 'Invalid action or missing data' };
+      },
+    });
+
+    // ── Credential Access Tool (Audited) ─────────────────────────────
+
+    toolMap['get_credentials_into_env'] = defineTool('get_credentials_into_env', {
+      description:
+        'Securely request a credential to be injected as an environment variable. All requests are logged for audit. ' +
+        'If the workspace has credential approval enabled, a security audit agent will review the request and may deny it.',
+      parameters: z.object({
+        credentialName: z.string().describe('Name of the credential key to retrieve (UPPER_SNAKE_CASE)'),
+        envName: z.string().describe('Environment variable name to inject the credential as'),
+        reason: z.string().describe('Reason for requesting the credential — logged for audit purposes'),
+      }),
+      handler: async ({
+        credentialName,
+        envName,
+        reason,
+      }: {
+        credentialName: string;
+        envName: string;
+        reason: string;
+      }) => {
+        if (!context?.agentId || !context?.workspaceId) return { error: 'No agent or workspace context available' };
+        logger.info({ credentialName, envName, agentId: context.agentId, reason }, 'Tool: get_credentials_into_env');
+
+        // Look up the credential across all 3 tiers (agent → user → workspace)
+        let credentialValue: string | null = null;
+        let credentialSource: string | null = null;
+
+        // 1. Agent-level credential
+        const agentCred = await db.query.agentVariables.findFirst({
+          where: and(
+            eq(agentVariables.agentId, context.agentId),
+            eq(agentVariables.key, credentialName),
+            eq(agentVariables.variableType, 'credential'),
+          ),
+        });
+        if (agentCred) {
+          credentialValue = decrypt(agentCred.valueEncrypted);
+          credentialSource = 'agent';
+        }
+
+        // 2. User-level credential (if not found at agent level)
+        if (!credentialValue && context.userId) {
+          const userCred = await db.query.userVariables.findFirst({
+            where: and(
+              eq(userVariables.userId, context.userId),
+              eq(userVariables.key, credentialName),
+              eq(userVariables.variableType, 'credential'),
+            ),
+          });
+          if (userCred) {
+            credentialValue = decrypt(userCred.valueEncrypted);
+            credentialSource = 'user';
+          }
+        }
+
+        // 3. Workspace-level credential (if not found at user level)
+        if (!credentialValue) {
+          const wsCred = await db.query.workspaceVariables.findFirst({
+            where: and(
+              eq(workspaceVariables.workspaceId, context.workspaceId),
+              eq(workspaceVariables.key, credentialName),
+              eq(workspaceVariables.variableType, 'credential'),
+            ),
+          });
+          if (wsCred) {
+            credentialValue = decrypt(wsCred.valueEncrypted);
+            credentialSource = 'workspace';
+          }
+        }
+
+        if (!credentialValue) {
+          // Log denied access (credential not found)
+          await db.insert(credentialAccessLogs).values({
+            workspaceId: context.workspaceId,
+            executionId: context.executionId ?? null,
+            agentId: context.agentId,
+            userId: context.userId ?? null,
+            credentialName,
+            envName,
+            reason,
+            approved: false,
+            approvedBy: null,
+          });
+
+          await emitEvent({
+            eventScope: 'workspace',
+            scopeId: context.workspaceId,
+            eventName: EVENT_NAMES.CREDENTIAL_ACCESS_DENIED,
+            eventData: { agentId: context.agentId, credentialName, envName, reason, denial: 'not_found' },
+            actorId: context.userId ?? null,
+          });
+
+          return { error: `Credential "${credentialName}" not found in any scope` };
+        }
+
+        // Check if workspace requires credential approval
+        const securitySettings = await db.query.workspaceSecuritySettings.findFirst({
+          where: eq(workspaceSecuritySettings.workspaceId, context.workspaceId),
+        });
+
+        let approved = true;
+        let approvedBy = 'auto';
+        let auditMessages: unknown = null;
+
+        if (securitySettings?.credentialApprovalEnabled && securitySettings.approvalAgentId) {
+          // Run sandbox audit session to check credential request
+          try {
+            const auditResult = await auditCredentialRequest({
+              approvalAgentId: securitySettings.approvalAgentId,
+              requestingAgentId: context.agentId,
+              executionId: context.executionId,
+              credentialName,
+              envName,
+              reason,
+              credentialSource: credentialSource!,
+              workspaceId: context.workspaceId,
+            });
+
+            approved = auditResult.approved;
+            approvedBy = approved ? `agent:${securitySettings.approvalAgentId}` : null as unknown as string;
+            auditMessages = auditResult.sessionMessages;
+          } catch (auditErr) {
+            logger.error({ error: auditErr }, 'Credential audit session failed, denying request');
+            approved = false;
+            approvedBy = null as unknown as string;
+          }
+        }
+
+        // Log the access attempt
+        await db.insert(credentialAccessLogs).values({
+          workspaceId: context.workspaceId,
+          executionId: context.executionId ?? null,
+          agentId: context.agentId,
+          userId: context.userId ?? null,
+          credentialName,
+          envName,
+          reason,
+          approved,
+          approvedBy: approvedBy ?? null,
+          auditSessionMessages: auditMessages,
+        });
+
+        // Emit event
+        await emitEvent({
+          eventScope: 'workspace',
+          scopeId: context.workspaceId,
+          eventName: approved ? EVENT_NAMES.CREDENTIAL_ACCESS_APPROVED : EVENT_NAMES.CREDENTIAL_ACCESS_DENIED,
+          eventData: {
+            agentId: context.agentId,
+            credentialName,
+            envName,
+            reason,
+            source: credentialSource,
+            approvedBy,
+          },
+          actorId: context.userId ?? null,
+        });
+
+        if (!approved) {
+          throw new Error(`Unauthorized: Credential access for "${credentialName}" was denied by the security audit agent.`);
+        }
+
+        // Inject the credential into the process environment
+        process.env[envName] = credentialValue;
+
+        return {
+          success: true,
+          credentialName,
+          envName,
+          source: credentialSource,
+          message: `Credential "${credentialName}" has been injected as environment variable "${envName}".`,
+        };
       },
     });
 

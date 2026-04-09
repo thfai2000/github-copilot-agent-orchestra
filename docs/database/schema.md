@@ -1,29 +1,40 @@
 # Database Schema
 
-PostgreSQL 16 with pgvector extension. Managed via Drizzle ORM.
+PostgreSQL 16 with pgvector extension. All tables use UUID primary keys and timestamps with timezone. Managed via Drizzle ORM.
 
 ## Entity Relationship
 
-```
-workspaces ──< users
-workspaces ──< agents ──< agent_variables
-                       ──< agent_files
-workspaces ──< workflows ──< workflow_steps ──> agents
-                         ──< workflow_executions ──< step_executions
-workspaces ──< plugins ──< agent_plugins ──> agents
-workspaces ──< models
-workspaces ──< workspace_variables
-workspaces ──< workspace_quota_settings
-users ──< user_variables
-users ──< user_quota_settings
-users ──< credit_usage ──> models (by name)
-agents ──< mcp_server_configs
-agents ──< webhook_registrations
-agents ──< agent_quota_usage
-agents ──< agent_decisions
-agents ──< agent_memories
-triggers ──< workflow_executions
-system_events (audit log)
+```mermaid
+erDiagram
+    workspaces ||--o{ users : "has members"
+    workspaces ||--o{ agents : "contains"
+    workspaces ||--o{ workflows : "contains"
+    workspaces ||--o{ workspace_variables : "has variables"
+    workspaces ||--o{ models : "has models"
+    workspaces ||--o{ plugins : "has plugins"
+    workspaces ||--o| workspace_security_settings : "has security settings"
+
+    users ||--o{ agents : "creates"
+    users ||--o{ workflows : "creates"
+    users ||--o{ user_variables : "has variables"
+    users ||--o{ credit_usage : "tracks usage"
+
+    agents ||--o{ agent_variables : "has variables"
+    agents ||--o{ mcp_server_configs : "has MCP configs"
+    agents ||--o{ agent_files : "has files"
+    agents ||--o{ agent_plugins : "has plugins"
+    agents ||--o{ webhook_registrations : "has webhooks"
+    agents ||--o{ agent_decisions : "has decisions"
+    agents ||--o{ agent_memories : "has memories"
+    agents ||--o{ credential_access_logs : "has credential logs"
+
+    workflows ||--o{ workflow_steps : "has steps"
+    workflows ||--o{ triggers : "has triggers"
+    workflows ||--o{ workflow_executions : "has executions"
+
+    workflow_executions ||--o{ step_executions : "has step results"
+
+    plugins ||--o{ agent_plugins : "enabled for"
 ```
 
 ## Enums
@@ -42,9 +53,10 @@ system_events (audit log)
 | `event_scope` | `workspace`, `user` |
 | `memory_type` | `observation`, `insight`, `strategy`, `lesson_learned`, `general` |
 
-## Tables
+## Tenancy Tables
 
 ### workspaces
+
 Tenant isolation boundary. All entities reference a workspace.
 
 | Column | Type | Notes |
@@ -57,6 +69,7 @@ Tenant isolation boundary. All entities reference a workspace.
 | createdAt, updatedAt | timestamp | |
 
 ### users
+
 Independent auth (email/password/bcrypt).
 
 | Column | Type | Notes |
@@ -69,8 +82,11 @@ Independent auth (email/password/bcrypt).
 | role | user_role | Default: `creator_user` |
 | createdAt | timestamp | |
 
+## Agent Tables
+
 ### agents
-AI agent definitions. Support GitHub repo or database-stored agent files.
+
+AI agent definitions.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -79,36 +95,55 @@ AI agent definitions. Support GitHub repo or database-stored agent files.
 | userId | UUID | Owner user |
 | name | varchar(100) | |
 | description | text | |
-| sourceType | agent_source_type | Default: 'github_repo'. How agent files are sourced |
-| gitRepoUrl | varchar(500) | GitHub repo URL (nullable, required for github_repo) |
-| gitBranch | varchar(100) | Default: main |
-| agentFilePath | varchar(300) | Path to .md in repo (nullable, required for github_repo) |
-| skillsDirectory | varchar(500) | Directory containing skill .md files (github_repo only) |
-| skillsPaths | varchar(300)[] | Paths to skill .md files |
+| sourceType | agent_source_type | Default: `github_repo` |
+| gitRepoUrl | varchar(500) | Required for `github_repo` |
+| gitBranch | varchar(100) | Default: `main` |
+| agentFilePath | varchar(300) | Path to .md in repo |
+| skillsDirectory | varchar(500) | Skills directory path |
+| skillsPaths | varchar(300)[] | Explicit skill file paths |
 | githubTokenEncrypted | text | AES-256-GCM encrypted |
-| githubTokenCredentialId | varchar(100) | References a credential variable for Git auth (alternative to inline token) |
-| builtinToolsEnabled | jsonb | Array of enabled built-in tool names. Default: all 8 tools |
-| scope | resource_scope | Resource scope. Default: 'user'. Immutable |
+| githubTokenCredentialId | varchar(100) | References credential variable |
+| builtinToolsEnabled | jsonb | Array of enabled built-in tool names |
+| scope | resource_scope | Default: `user`. Immutable |
 | status | agent_status | |
 | lastSessionAt | timestamp | |
 | createdAt, updatedAt | timestamp | |
 
 ### agent_files
-Database-stored agent files (for sourceType='database' agents).
+
+Database-stored agent files (for `sourceType: database`).
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | agentId | UUID FK → agents | Cascade delete |
-| filePath | varchar(500) | Relative file path (e.g. 'agent.md', 'skills/research.md') |
-| content | text | File content (markdown) |
+| filePath | varchar(500) | Relative path (e.g., `agent.md`, `skills/research.md`) |
+| content | text | Markdown content |
 | createdAt, updatedAt | timestamp | |
 | | | UNIQUE(agentId, filePath) |
 
-The first root-level .md file (no `/` in path) is treated as the main agent instruction file. Other .md files are loaded as skills.
+### mcp_server_configs
+
+MCP server configurations per agent.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| agentId | UUID FK → agents | |
+| name | varchar(100) | Display name |
+| description | varchar(500) | |
+| command | varchar(200) | Process command (`node`, `npx`, `python`) |
+| args | jsonb | Command arguments array |
+| envMapping | jsonb | Credential key → env var mapping |
+| isEnabled | boolean | |
+| writeTools | jsonb | Tool names requiring permission |
+| createdAt, updatedAt | timestamp | |
+
+## Workflow Tables
 
 ### workflows
-Multi-step execution templates. Belong to a user, not an agent.
+
+Multi-step execution templates.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -117,17 +152,18 @@ Multi-step execution templates. Belong to a user, not an agent.
 | userId | UUID | Owner |
 | name | varchar(200) | |
 | description | text | |
-| isActive | boolean | Whether triggers should fire |
+| isActive | boolean | |
 | maxConcurrentExecutions | integer | Default: 1 |
-| version | integer | Auto-incremented on edit. Default: 1 |
-| defaultAgentId | UUID FK → agents | Optional: workflow-level default agent |
-| defaultModel | varchar(100) | Optional: workflow-level default model |
-| defaultReasoningEffort | reasoning_effort | Optional: workflow-level default |
-| scope | resource_scope | Resource scope. Default: 'user'. Immutable |
+| version | integer | Auto-incremented. Default: 1 |
+| defaultAgentId | UUID FK → agents | Optional |
+| defaultModel | varchar(100) | Optional |
+| defaultReasoningEffort | reasoning_effort | Optional |
+| scope | resource_scope | Default: `user`. Immutable |
 | createdAt, updatedAt | timestamp | |
 
 ### workflow_steps
-Ordered steps in a workflow. Each step can specify its own agent, or inherit from workflow defaults.
+
+Ordered steps in a workflow.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -136,175 +172,182 @@ Ordered steps in a workflow. Each step can specify its own agent, or inherit fro
 | name | varchar(200) | |
 | promptTemplate | text | Markdown with optional `<PRECEDENT_OUTPUT>` |
 | stepOrder | integer | 1-indexed |
-| agentId | UUID FK → agents | Optional: falls back to workflow default |
-| model | varchar(100) | Optional: overrides workflow default |
-| reasoningEffort | reasoning_effort | Optional: overrides workflow default |
+| agentId | UUID FK → agents | Optional |
+| model | varchar(100) | Optional override |
+| reasoningEffort | reasoning_effort | Optional |
 | timeoutSeconds | integer | Default: 300 |
 | createdAt, updatedAt | timestamp | |
 | | | UNIQUE(workflowId, stepOrder) |
 
 ### triggers
+
 Trigger configurations for workflows.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | workflowId | UUID FK → workflows | |
-| triggerType | trigger_type | 'manual' in enum but unused — all support manual |
-| configuration | jsonb | Type-specific config (see below) |
+| triggerType | trigger_type | |
+| configuration | jsonb | Type-specific config |
 | isActive | boolean | |
 | lastFiredAt | timestamp | |
 | createdAt | timestamp | |
 
-Configuration JSONB examples:
-- Time Schedule: `{ "cron": "0 9 * * 1-5", "timezone": "America/New_York" }` or `{ "interval_minutes": 60 }`
-- Exact Datetime: `{ "datetime": "2025-01-15T09:00:00Z", "reason": "Follow-up analysis" }` (one-shot, deactivated after firing)
-- Webhook: `{ "secret": "hmac-secret-encrypted", "allowed_ips": ["0.0.0.0/0"] }`
-- Event: `{ "eventName": "workflow.completed", "conditions": { "status": "completed" } }`
+**Configuration JSONB examples:**
+- **Cron**: `{ "cron": "0 9 * * 1-5", "timezone": "America/New_York" }`
+- **Datetime**: `{ "datetime": "2025-01-15T09:00:00Z" }` (one-shot, auto-deactivates)
+- **Webhook**: `{ "secret": "hmac-secret-encrypted" }`
+- **Event**: `{ "eventName": "workflow.completed", "conditions": { "status": "completed" } }`
+
+## Execution Tables
 
 ### workflow_executions
-Records of workflow runs.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | workflowId | UUID FK → workflows | |
-| triggerId | UUID FK → triggers | What triggered this run |
+| triggerId | UUID FK → triggers | |
 | triggerMetadata | jsonb | Webhook payload, cron tick, retry info |
-| workflowVersion | integer | Snapshot of workflow.version at trigger time |
-| workflowSnapshot | jsonb | Full snapshot of workflow + steps (immutable) |
+| workflowVersion | integer | Snapshot version at trigger time |
+| workflowSnapshot | jsonb | Full workflow + steps snapshot (immutable) |
 | status | execution_status | |
-| currentStep | integer | Which step is executing (1-indexed) |
-| totalSteps | integer | Total steps in workflow |
+| currentStep | integer | 1-indexed |
+| totalSteps | integer | |
 | startedAt, completedAt | timestamp | |
-| error | text | If failed |
+| error | text | |
 | createdAt | timestamp | |
 
 ### step_executions
-Records of individual step runs within a workflow execution.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | workflowExecutionId | UUID FK → workflow_executions | |
 | workflowStepId | UUID FK → workflow_steps | |
-| stepOrder | integer | Execution order |
-| resolvedPrompt | text | Prompt with `<PRECEDENT_OUTPUT>` replaced |
+| stepOrder | integer | |
+| resolvedPrompt | text | Prompt with variables replaced |
 | output | text | Copilot session response |
 | reasoningTrace | jsonb | Tool calls, intermediate thoughts |
 | status | step_status | |
 | startedAt, completedAt | timestamp | |
-| error | text | If failed |
+| error | text | |
+
+## Variable Tables
+
+All variable tables share the same structure: `key` (UPPER_SNAKE_CASE), `valueEncrypted` (AES-256-GCM), `variableType` (credential/property), `injectAsEnvVariable`.
 
 ### agent_variables
-Agent-level encrypted key-value store. Overrides user and workspace variables with the same key.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | agentId | UUID FK → agents | |
 | key | varchar(100) | UPPER_SNAKE_CASE |
-| valueEncrypted | text | AES-256-GCM encrypted |
+| valueEncrypted | text | AES-256-GCM |
 | description | varchar(300) | |
-| variableType | variable_type | Default: 'credential' |
-| injectAsEnvVariable | boolean | Write to .env during execution |
+| variableType | variable_type | Default: `credential` |
+| injectAsEnvVariable | boolean | |
 | createdAt, updatedAt | timestamp | |
 | | | UNIQUE(agentId, key) |
 
 ### user_variables
-User-level encrypted key-value store. Available to all workflow steps. Agent variables with same key take priority.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
-| userId | UUID | Owner |
-| key | varchar(100) | UPPER_SNAKE_CASE |
-| valueEncrypted | text | AES-256-GCM encrypted |
+| userId | UUID | |
+| key | varchar(100) | |
+| valueEncrypted | text | |
 | description | varchar(300) | |
-| variableType | variable_type | Default: 'credential' |
-| injectAsEnvVariable | boolean | Write to .env during execution |
+| variableType | variable_type | Default: `credential` |
+| injectAsEnvVariable | boolean | |
 | createdAt, updatedAt | timestamp | |
 | | | UNIQUE(userId, key) |
 
 ### workspace_variables
-Workspace-level encrypted key-value store. Lowest priority — overridden by user and agent variables.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | workspaceId | UUID FK → workspaces | |
-| key | varchar(100) | UPPER_SNAKE_CASE |
-| valueEncrypted | text | AES-256-GCM encrypted |
+| key | varchar(100) | |
+| valueEncrypted | text | |
 | description | varchar(300) | |
-| variableType | variable_type | Default: 'credential' |
-| injectAsEnvVariable | boolean | Write to .env during execution |
+| variableType | variable_type | Default: `credential` |
+| injectAsEnvVariable | boolean | |
 | createdAt, updatedAt | timestamp | |
 | | | UNIQUE(workspaceId, key) |
 
-### agent_quota_usage
-Per-agent token usage tracking.
+## Admin & Quota Tables
 
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| agentId | UUID FK → agents | |
-| date | date | Usage date |
-| promptTokensUsed | integer | |
-| completionTokensUsed | integer | |
-| sessionCount | integer | Number of Copilot sessions |
-| createdAt | timestamp | |
-| | | UNIQUE(agentId, date) |
-
-### webhook_registrations
-Webhook endpoint metadata for agents.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| agentId | UUID FK → agents | |
-| triggerId | UUID FK → triggers | Which trigger this serves |
-| endpointPath | varchar(200) | URL path suffix |
-| hmacSecretEncrypted | text | AES-256-GCM encrypted |
-| isActive | boolean | |
-| requestCount | integer | Total received |
-| lastReceivedAt | timestamp | |
-| createdAt | timestamp | |
-
-### mcp_server_configs
-MCP server configurations per-agent.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| agentId | UUID FK → agents | |
-| name | varchar(100) | Display name |
-| description | varchar(500) | |
-| command | varchar(200) | Process command (e.g. "node", "npx") |
-| args | jsonb | Command arguments array |
-| envMapping | jsonb | Credential key → env var name mapping |
-| isEnabled | boolean | Whether to load during execution |
-| writeTools | jsonb | Tool names requiring permission |
-| createdAt, updatedAt | timestamp | |
-
-### plugins
-Admin-managed plugin registry. Each plugin is a Git repo.
+### models
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | workspaceId | UUID FK → workspaces | |
-| name | varchar(100) | Display name |
+| name | varchar(100) | UNIQUE per workspace |
+| provider | varchar(50) | Default: `github` |
 | description | text | |
-| gitRepoUrl | varchar(500) | Plugin repository URL |
-| gitBranch | varchar(100) | Default: main |
-| githubTokenEncrypted | text | For private repos (AES-256-GCM) |
-| manifestCache | jsonb | Cached plugin.json contents |
+| creditCost | decimal(10,2) | Default: 1.00 |
+| isActive | boolean | |
+| createdAt, updatedAt | timestamp | |
+
+### workspace_quota_settings
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| workspaceId | UUID FK | UNIQUE |
+| dailyCreditLimit | decimal(10,2) | Null = unlimited |
+| monthlyCreditLimit | decimal(10,2) | Null = unlimited |
+| updatedBy | UUID FK → users | |
+| updatedAt | timestamp | |
+
+### user_quota_settings
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| userId | UUID FK | UNIQUE |
+| dailyCreditLimit | decimal(10,2) | Null = use workspace default |
+| monthlyCreditLimit | decimal(10,2) | Null = use workspace default |
+| updatedAt | timestamp | |
+
+### credit_usage
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| workspaceId | UUID FK | |
+| userId | UUID FK | |
+| modelName | varchar(100) | |
+| creditsConsumed | decimal(10,2) | Default: 0 |
+| sessionCount | integer | |
+| date | date | |
+| createdAt | timestamp | |
+| | | UNIQUE(userId, modelName, date) |
+
+## Plugin Tables
+
+### plugins
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| workspaceId | UUID FK → workspaces | |
+| name | varchar(100) | |
+| description | text | |
+| gitRepoUrl | varchar(500) | |
+| gitBranch | varchar(100) | Default: `main` |
+| githubTokenEncrypted | text | AES-256-GCM |
+| manifestCache | jsonb | Cached plugin.json |
 | isAllowed | boolean | Admin toggle |
-| createdBy | UUID FK → users | Admin who registered |
+| createdBy | UUID FK → users | |
 | createdAt, updatedAt | timestamp | |
 
 ### agent_plugins
-Per-agent plugin toggle.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -315,104 +358,101 @@ Per-agent plugin toggle.
 | createdAt | timestamp | |
 | | | UNIQUE(agentId, pluginId) |
 
-### models
-Admin-managed model registry with credit costs. Workspace-scoped.
+## Audit & Memory Tables
+
+### system_events
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| eventScope | enum(`workspace`, `user`) | |
+| scopeId | UUID | workspaceId or userId |
+| eventName | varchar(100) | One of 21 predefined events |
+| eventData | jsonb | Event-specific payload |
+| actorId | UUID | User who caused the event |
+| createdAt | timestamp | Indexed for cursor-based polling |
+
+### agent_decisions
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| agentId | UUID FK | |
+| executionId | UUID FK | |
+| category | varchar(50) | e.g., `trade`, `analysis` |
+| action | varchar(50) | e.g., `buy`, `approve` |
+| summary | text | |
+| decision | jsonb | Full reasoning |
+| outcome | varchar(20) | `executed`, `rejected`, `skipped` |
+| referenceId | varchar(100) | External reference |
+| createdAt | timestamp | |
+
+### agent_memories
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| agentId | UUID FK | |
+| content | text | Memory content |
+| embedding | vector(1536) | pgvector embedding |
+| metadata | jsonb | Additional context |
+| createdAt | timestamp | |
+
+### webhook_registrations
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| agentId | UUID FK | |
+| triggerId | UUID FK | |
+| endpointPath | varchar(200) | URL path suffix |
+| hmacSecretEncrypted | text | AES-256-GCM |
+| isActive | boolean | |
+| requestCount | integer | |
+| lastReceivedAt | timestamp | |
+| createdAt | timestamp | |
+
+## Security Tables
+
+### credential_access_logs
+
+Audit log of all credential access requests made by agents via `get_credentials_into_env`.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | workspaceId | UUID FK → workspaces | |
-| name | varchar(100) | Model name (e.g., `gpt-4.1`). UNIQUE per workspace |
-| provider | varchar(50) | Provider (e.g., `github`). Default: github |
-| description | text | |
-| creditCost | decimal(10,2) | Credits per session. Default: 1.00 |
-| isActive | boolean | Whether available for use |
-| createdAt, updatedAt | timestamp | |
+| executionId | UUID FK → workflow_executions | Nullable |
+| agentId | UUID FK → agents | |
+| userId | UUID | |
+| credentialName | varchar(200) | Credential key requested |
+| envName | varchar(200) | Target environment variable name |
+| reason | text | Agent-provided justification |
+| approved | boolean | Whether access was granted |
+| approvedBy | varchar(100) | `auto` or `audit_agent:{agentId}` |
+| auditSessionMessages | jsonb | Full audit session transcript |
+| createdAt | timestamp | Indexed |
 
-### workspace_quota_settings
-Workspace-level credit quota limits. Managed by admin.
+Indexes: `agentId`, `executionId`, `createdAt`
+
+### workspace_security_settings
+
+Per-workspace security configuration for credential access control.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | workspaceId | UUID FK → workspaces | UNIQUE |
-| dailyCreditLimit | decimal(10,2) | Null = unlimited |
-| monthlyCreditLimit | decimal(10,2) | Null = unlimited |
-| updatedBy | UUID FK → users | Admin who last updated |
+| credentialApprovalEnabled | boolean | Default: false |
+| approvalAgentId | UUID FK → agents | Agent used for audit decisions |
+| updatedBy | UUID FK → users | |
 | updatedAt | timestamp | |
 
-### user_quota_settings
-Per-user credit quota overrides.
+## Security Features
 
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| userId | UUID FK → users | UNIQUE |
-| dailyCreditLimit | decimal(10,2) | Null = use workspace default |
-| monthlyCreditLimit | decimal(10,2) | Null = use workspace default |
-| updatedAt | timestamp | |
-
-### credit_usage
-Per-user, per-model, per-day credit consumption tracking.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| workspaceId | UUID FK → workspaces | |
-| userId | UUID FK → users | |
-| modelName | varchar(100) | Model used |
-| creditsConsumed | decimal(10,2) | Default: 0 |
-| sessionCount | integer | Number of sessions |
-| date | date | Usage date |
-| createdAt | timestamp | |
-| | | UNIQUE(userId, modelName, date) |
-
-### agent_decisions
-Generic decision audit trail for agents.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| agentId | UUID FK → agents | |
-| executionId | UUID FK → workflow_executions | |
-| category | varchar(50) | e.g. "trade", "analysis" |
-| action | varchar(50) | e.g. "buy", "approve" |
-| summary | text | Brief summary |
-| decision | jsonb | Full reasoning (signals, confidence, details) |
-| outcome | varchar(20) | executed, rejected, skipped |
-| referenceId | varchar(100) | External reference ID |
-| createdAt | timestamp | |
-
-### system_events
-Audit log and event trigger source.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| eventScope | enum('workspace','user') | Workspace-wide or user-specific |
-| scopeId | UUID | workspaceId or userId |
-| eventName | varchar(100) | Predefined event name |
-| eventData | jsonb | Event-specific payload |
-| actorId | UUID | User who caused the event (nullable) |
-| createdAt | timestamp | Indexed for cursor-based polling |
-
-**Predefined Event Names** (18 events):
-- `agent.created`, `agent.updated`, `agent.deleted`, `agent.status_changed`
-- `workflow.created`, `workflow.updated`, `workflow.deleted`
-- `execution.started`, `execution.completed`, `execution.failed`, `execution.cancelled`
-- `step.completed`, `step.failed`
-- `trigger.fired`
-- `user.login`, `user.registered`
-- `variable.created`, `variable.updated`, `variable.deleted`
-
-### agent_memories
-Long-term memory with pgvector embeddings for semantic retrieval.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| agentId | UUID FK → agents | |
-| content | text | Memory content |
-| embedding | vector(1536) | pgvector embedding |
-| metadata | jsonb | Additional context |
-| createdAt | timestamp | |
+- **Encryption** — All credential values encrypted with AES-256-GCM
+- **Parameterized queries** — Drizzle ORM prevents SQL injection
+- **UUID keys** — Non-guessable primary keys
+- **Foreign keys** — Cascade deletes for referential integrity
+- **Unique indexes** — Prevent duplicate variable keys per scope
+- **Credential audit** — All credential access logged with approval workflow. See [AI Security](/concepts/security)

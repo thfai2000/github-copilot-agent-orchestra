@@ -23,6 +23,7 @@ import { prepareAgentWorkspace, prepareDbAgentWorkspace } from './agent-workspac
 import { createAgentTools } from './agent-tools.js';
 import { connectToMcpServer } from './mcp-client.js';
 import { loadAgentPlugins, readPluginSkills, getPluginMcpServers, getPluginToolDefs } from './plugin-loader.js';
+import { cleanupAuditSession } from './credential-audit.js';
 
 const logger = createLogger('workflow-engine');
 
@@ -416,6 +417,9 @@ export async function executeWorkflow(executionId: string, startFromStep = 0) {
         .set({ status: 'failed', error: errorMsg, completedAt: new Date() })
         .where(eq(workflowExecutions.id, executionId));
 
+      // Clean up any audit sessions
+      await cleanupAuditSession(executionId);
+
       logger.error({ executionId, stepOrder: step.stepOrder, error: errorMsg }, 'Step failed');
       return;
     }
@@ -432,6 +436,9 @@ export async function executeWorkflow(executionId: string, startFromStep = 0) {
   for (const agentId of agentIdsUsed) {
     await db.update(agents).set({ lastSessionAt: new Date() }).where(eq(agents.id, agentId));
   }
+
+  // Clean up any audit sessions created during this execution
+  await cleanupAuditSession(executionId);
 
   logger.info({ executionId }, 'Workflow execution completed');
 }
@@ -541,6 +548,7 @@ async function executeCopilotSession(params: {
       workflowId,
       executionId,
       userId: agent.userId,
+      workspaceId,
     }, (agent.builtinToolsEnabled as string[]) ?? undefined);
 
     // 3.1 Load MCP server configurations for this agent from DB

@@ -1,6 +1,8 @@
-# API Routes
+# API Endpoints
 
-All routes under `/api/` are served by the Agent API (Hono, port 4002).
+All routes are served by OAO-API (Hono v4.6) at port 4002. OAO-UI proxies all `/api/*` requests to the API.
+
+**Authentication**: JWT tokens signed with HS256, 7-day expiry. Include in headers: `Authorization: Bearer <token>`
 
 ## Authentication
 
@@ -12,122 +14,139 @@ All routes under `/api/` are served by the Agent API (Hono, port 4002).
 
 ## Agents
 
-| Method | Path | Auth | Role | Description |
-|---|---|---|---|---|
-| GET | `/api/agents` | JWT | Any | List agents in workspace |
-| POST | `/api/agents` | JWT | creator_user+ | Create agent |
-| GET | `/api/agents/:id` | JWT | Any | Agent detail (workspace-scoped) |
-| PUT | `/api/agents/:id` | JWT | creator_user+ | Update agent |
-| DELETE | `/api/agents/:id` | JWT | creator_user+ | Delete agent |
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/api/agents` | Any | List agents in workspace |
+| POST | `/api/agents` | creator+ | Create agent |
+| GET | `/api/agents/:id` | Any | Agent detail (workspace-scoped) |
+| PUT | `/api/agents/:id` | creator+ | Update agent |
+| DELETE | `/api/agents/:id` | creator+ | Delete agent |
 
 ## Workflows
 
-| Method | Path | Auth | Role | Description |
-|---|---|---|---|---|
-| GET | `/api/workflows` | JWT | Any | List workflows in workspace |
-| POST | `/api/workflows` | JWT | creator_user+ | Create workflow with steps + triggers |
-| GET | `/api/workflows/:id` | JWT | Any | Workflow detail with steps |
-| PUT | `/api/workflows/:id` | JWT | creator_user+ | Update workflow |
-| DELETE | `/api/workflows/:id` | JWT | creator_user+ | Delete workflow |
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/api/workflows` | Any | List workflows in workspace |
+| POST | `/api/workflows` | creator+ | Create workflow with steps + triggers |
+| GET | `/api/workflows/:id` | Any | Workflow detail with steps |
+| PUT | `/api/workflows/:id` | creator+ | Update workflow |
+| DELETE | `/api/workflows/:id` | creator+ | Delete workflow |
 
 ## Executions
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/executions` | JWT | List executions (paginated) |
-| GET | `/api/executions/:id` | JWT | Execution detail with steps |
-| POST | `/api/executions/:id/cancel` | JWT | Cancel running execution |
-| POST | `/api/executions/:id/retry` | JWT | Retry from failed step |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/executions` | List executions (paginated) |
+| GET | `/api/executions/:id` | Execution detail with step results |
+| POST | `/api/executions/:id/cancel` | Cancel running execution |
+| POST | `/api/executions/:id/retry` | Retry from failed step |
 
 ## Variables
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/variables?scope=user` | JWT | List user variables |
-| GET | `/api/variables?scope=workspace` | JWT | List workspace variables |
-| GET | `/api/variables?agentId=...` | JWT | List agent variables |
-| POST | `/api/variables` | JWT | Create variable (body.scope: agent/user/workspace) |
-| PUT | `/api/variables/:id` | JWT | Update variable (body.scope) |
-| DELETE | `/api/variables/:id?scope=...` | JWT | Delete variable |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/variables?scope=user` | List user variables |
+| GET | `/api/variables?scope=workspace` | List workspace variables |
+| GET | `/api/variables?agentId=...` | List agent variables |
+| POST | `/api/variables` | Create variable (body.scope: agent/user/workspace) |
+| PUT | `/api/variables/:id` | Update variable |
+| DELETE | `/api/variables/:id?scope=...` | Delete variable |
 
 ## Triggers
 
-| Method | Path | Auth | Description |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/triggers?workflowId=...` | List triggers for workflow |
+| POST | `/api/triggers` | Create trigger |
+| PUT | `/api/triggers/:id` | Update trigger |
+| DELETE | `/api/triggers/:id` | Delete trigger |
+
+## Agent Files
+
+For agents with `sourceType: database`:
+
+| Method | Path | Role | Description |
 |---|---|---|---|
-| GET | `/api/triggers?workflowId=...` | JWT | List triggers |
-| POST | `/api/triggers` | JWT | Create trigger |
-| PUT | `/api/triggers/:id` | JWT | Update trigger |
-| DELETE | `/api/triggers/:id` | JWT | Delete trigger |
+| GET | `/api/agent-files/:agentId` | Any | List files for agent |
+| POST | `/api/agent-files/:agentId` | creator+ | Create file |
+| PUT | `/api/agent-files/:agentId/:fileId` | creator+ | Update file content |
+| DELETE | `/api/agent-files/:agentId/:fileId` | creator+ | Delete file |
 
-## Agent Files (database source agents)
+## System Events
 
-| Method | Path | Auth | Role | Description |
-|---|---|---|---|---|
-| GET | `/api/agent-files/:agentId` | JWT | Any | List files for agent |
-| POST | `/api/agent-files/:agentId` | JWT | creator_user+ | Create file (database source only) |
-| PUT | `/api/agent-files/:agentId/:fileId` | JWT | creator_user+ | Update file content |
-| DELETE | `/api/agent-files/:agentId/:fileId` | JWT | creator_user+ | Delete file |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/events` | List system events (paginated) |
+| GET | `/api/events/names` | Available event names |
+
+## MCP Servers
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/mcp-servers?agentId=...` | List MCP configs for agent |
+| POST | `/api/mcp-servers` | Add MCP server config |
+| PUT | `/api/mcp-servers/:id` | Update config |
+| DELETE | `/api/mcp-servers/:id` | Delete config |
 
 ## Plugins
 
-| Method | Path | Auth | Role | Description |
-|---|---|---|---|---|
-| GET | `/api/plugins` | JWT | Any | List plugins in workspace |
-| POST | `/api/plugins` | JWT | admin+ | Install plugin from Git |
-| GET | `/api/plugins/:id` | JWT | Any | Plugin detail |
-| PUT | `/api/plugins/:id` | JWT | admin+ | Update plugin |
-| DELETE | `/api/plugins/:id` | JWT | admin+ | Delete plugin |
-| POST | `/api/plugins/:id/sync` | JWT | admin+ | Re-sync from Git |
-| GET | `/api/plugins/agent/:agentId` | JWT | Any | Plugins enabled for agent |
-| PUT | `/api/plugins/agent/:agentId` | JWT | creator_user+ | Toggle plugin for agent |
-
-## Admin (workspace_admin / super_admin)
-
-| Method | Path | Auth | Description |
+| Method | Path | Role | Description |
 |---|---|---|---|
-| GET | `/api/admin/users` | JWT admin | List workspace users |
-| PUT | `/api/admin/users/:id/role` | JWT admin | Change user role |
-| GET/POST/PUT/DELETE | `/api/admin/models[/:id]` | JWT admin | Model CRUD (workspace-scoped) |
-| GET/PUT | `/api/admin/quota-settings` | JWT admin | Workspace quota settings |
-| GET | `/api/admin/credit-stats` | JWT admin | Workspace credit usage breakdown |
+| GET | `/api/plugins` | Any | List plugins in workspace |
+| POST | `/api/plugins` | admin | Install plugin from Git |
+| GET | `/api/plugins/:id` | Any | Plugin detail |
+| PUT | `/api/plugins/:id` | admin | Update plugin |
+| DELETE | `/api/plugins/:id` | admin | Delete plugin |
+| POST | `/api/plugins/:id/sync` | admin | Re-sync from Git |
+| GET | `/api/plugins/agent/:agentId` | Any | Plugins enabled for agent |
+| PUT | `/api/plugins/agent/:agentId` | creator+ | Toggle plugin for agent |
+
+## Admin
+
+Requires `workspace_admin` or `super_admin` role.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/admin/users` | List workspace users |
+| PUT | `/api/admin/users/:id/role` | Change user role |
+| GET/POST/PUT/DELETE | `/api/admin/models[/:id]` | Model CRUD (workspace-scoped) |
+| GET/PUT | `/api/admin/quota-settings` | Workspace quota settings |
+| GET | `/api/admin/credit-stats` | Workspace credit usage breakdown |
+| GET | `/api/admin/security` | Get workspace security settings (credential approval) |
+| PUT | `/api/admin/security` | Update workspace security settings |
+| GET | `/api/admin/credential-logs` | List credential access logs (paginated) |
 
 ## Quota
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/quota/settings` | JWT | User quota (workspace defaults + user overrides) |
-| GET | `/api/quota/usage` | JWT | User credit usage with daily/model/month breakdown |
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/quota/models` | Active models (for dropdowns) |
+| GET | `/api/quota/settings` | User quota limits |
+| GET | `/api/quota/usage` | Credit usage stats (daily/model/month) |
 
-## Workspaces (super_admin only)
+## Workspaces
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/workspaces` | JWT super_admin | List all workspaces |
-| POST | `/api/workspaces` | JWT super_admin | Create workspace |
-| GET | `/api/workspaces/:id` | JWT super_admin | Workspace detail + members |
-| PUT | `/api/workspaces/:id` | JWT super_admin | Update workspace |
-| DELETE | `/api/workspaces/:id` | JWT super_admin | Delete (non-default, 0 members) |
-| PUT | `/api/workspaces/:id/members/:userId` | JWT super_admin | Move user + set role |
+Requires `super_admin` role.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/workspaces` | List all workspaces |
+| POST | `/api/workspaces` | Create workspace |
+| GET | `/api/workspaces/:id` | Workspace detail + members |
+| PUT | `/api/workspaces/:id` | Update workspace |
+| DELETE | `/api/workspaces/:id` | Delete (non-default, 0 members only) |
+| PUT | `/api/workspaces/:id/members/:userId` | Move user + set role |
 
 ## Webhooks
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/api/webhooks/:path` | HMAC | Receive webhook events |
-
-## MCP Servers
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/mcp-servers?agentId=...` | JWT | List MCP configs |
-| POST | `/api/mcp-servers` | JWT | Add MCP server config |
-| PUT | `/api/mcp-servers/:id` | JWT | Update config |
-| DELETE | `/api/mcp-servers/:id` | JWT | Delete config |
+| POST | `/api/webhooks/:path` | HMAC-SHA256 | Receive webhook events |
 
 ## Supervisor
 
-| Method | Path | Auth | Description |
+| Method | Path | Role | Description |
 |---|---|---|---|
-| POST | `/api/supervisor/emergency-stop` | JWT admin | Pause all active agents |
-| POST | `/api/supervisor/resume-all` | JWT admin | Resume all paused agents |
-| GET | `/api/supervisor/status` | JWT admin | Get system-wide supervisor status |
+| POST | `/api/supervisor/emergency-stop` | admin | Pause all active agents |
+| POST | `/api/supervisor/resume-all` | admin | Resume all paused agents |
+| GET | `/api/supervisor/status` | admin | System-wide supervisor status |

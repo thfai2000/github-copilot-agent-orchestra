@@ -94,6 +94,7 @@ export const agents = pgTable('agents', {
     'schedule_next_workflow_execution', 'manage_webhook_trigger', 'record_decision',
     'memory_store', 'memory_retrieve',
     'edit_workflow', 'read_variables', 'edit_variables',
+    'get_credentials_into_env',
   ]), // array of enabled built-in tool names
   status: agentStatusEnum('status').notNull().default('active'),
   lastSessionAt: timestamp('last_session_at', { withTimezone: true }),
@@ -548,3 +549,46 @@ export const systemEvents = pgTable(
     systemEventsCreatedIdx: index('system_events_created_idx').on(table.createdAt),
   }),
 );
+
+// ─── Credential Access Logs (audit trail for get_credentials_into_env) ──
+
+export const credentialAccessLogs = pgTable(
+  'credential_access_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    executionId: uuid('execution_id').references(() => workflowExecutions.id),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id),
+    credentialName: varchar('credential_name', { length: 100 }).notNull(),
+    envName: varchar('env_name', { length: 100 }).notNull(),
+    reason: text('reason').notNull(),
+    approved: boolean('approved').notNull(),
+    approvedBy: varchar('approved_by', { length: 50 }), // 'auto' | 'agent:<agentId>' | null (denied)
+    auditSessionMessages: jsonb('audit_session_messages'), // snapshot of the sandbox audit session
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    credAccessAgentIdx: index('credential_access_logs_agent_idx').on(table.agentId),
+    credAccessExecIdx: index('credential_access_logs_exec_idx').on(table.executionId),
+    credAccessCreatedIdx: index('credential_access_logs_created_idx').on(table.createdAt),
+  }),
+);
+
+// ─── Workspace Security Settings (credential approval config) ───────
+
+export const workspaceSecuritySettings = pgTable('workspace_security_settings', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' })
+    .unique(),
+  credentialApprovalEnabled: boolean('credential_approval_enabled').notNull().default(false),
+  approvalAgentId: uuid('approval_agent_id').references(() => agents.id), // agent that audits credential requests
+  updatedBy: uuid('updated_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

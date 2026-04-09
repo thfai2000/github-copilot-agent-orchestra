@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# deploy.sh — Deploy Agent Orchestration Platform to Kubernetes via Helm
+# deploy.sh — Deploy Open Agent Orchestra (OAO) to Kubernetes via Helm
 # ============================================================================
 set -euo pipefail
 
@@ -36,13 +36,13 @@ if [ ! -f "${HELM_DIR}/agent-platform/values.yaml" ]; then
 fi
 
 echo "═══════════════════════════════════════════════════════════════"
-echo "  Deploying Agent Orchestration Platform to Kubernetes (Helm)"
+echo "  Deploying Open Agent Orchestra (OAO) to Kubernetes (Helm)"
 echo "═══════════════════════════════════════════════════════════════"
 
-# ─── Deploy Agent Platform (API + UI + PostgreSQL + Redis) ───────────────────
+# ─── Deploy OAO Platform (API + UI + PostgreSQL + Redis) ───────────────────
 
 echo ""
-echo "▸ [1/1] Deploying Agent Orchestration Platform ..."
+echo "▸ [1/1] Deploying Open Agent Orchestra ..."
 helm upgrade --install agent-platform "${HELM_DIR}/agent-platform" \
   -f "${HELM_DIR}/agent-platform/values.yaml" \
   --namespace agent-orchestra --create-namespace
@@ -92,11 +92,11 @@ echo "════════════════════════�
 echo "  ✓ Deployment complete"
 echo ""
 echo "  Helm release:"
-echo "    agent-platform      — Agent API + UI + PostgreSQL + Redis"
+echo "    agent-platform      — OAO-API + OAO-UI + PostgreSQL + Redis"
 echo ""
 echo "  Access (via port-forward):"
-echo "    Agent UI:   http://localhost:3002"
-echo "    Agent API:  http://localhost:4002"
+echo "    OAO-UI:   http://localhost:3002"
+echo "    OAO-API:  http://localhost:4002"
 echo ""
 echo "  Useful commands:"
 echo "    kubectl -n agent-orchestra get pods"
