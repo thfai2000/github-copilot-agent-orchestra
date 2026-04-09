@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { eq, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../database/index.js';
 import {
   workflowExecutions,
@@ -34,21 +34,26 @@ const SESSION_LOCK_TTL_SECONDS = 600; // 10 minutes
 /**
  * Acquire a Redis distributed lock to prevent concurrent Copilot sessions
  * for the same agent. Uses SET NX with TTL for automatic expiry.
+ * Returns a unique lock value for owner-aware release.
  */
-async function acquireSessionLock(agentId: string): Promise<boolean> {
+async function acquireSessionLock(agentId: string): Promise<string | null> {
   const redis = getRedisConnection();
   const key = `${SESSION_LOCK_PREFIX}${agentId}`;
-  const result = await redis.set(key, Date.now().toString(), 'EX', SESSION_LOCK_TTL_SECONDS, 'NX');
-  return result === 'OK';
+  const lockValue = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const result = await redis.set(key, lockValue, 'EX', SESSION_LOCK_TTL_SECONDS, 'NX');
+  return result === 'OK' ? lockValue : null;
 }
 
 /**
- * Release the session lock for an agent.
+ * Release the session lock for an agent, but only if we own it (compare-and-delete).
+ * Prevents releasing a lock acquired by another process after TTL expiry.
  */
-async function releaseSessionLock(agentId: string): Promise<void> {
+async function releaseSessionLock(agentId: string, lockValue: string): Promise<void> {
   const redis = getRedisConnection();
   const key = `${SESSION_LOCK_PREFIX}${agentId}`;
-  await redis.del(key);
+  // Lua script for atomic compare-and-delete
+  const script = `if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`;
+  await redis.eval(script, 1, key, lockValue);
 }
 
 /**
@@ -473,14 +478,32 @@ async function executeCopilotSession(params: {
   );
 
   // 0. Acquire distributed session lock (prevent concurrent sessions per agent)
-  const lockAcquired = await acquireSessionLock(agent.id);
-  if (!lockAcquired) {
+  const lockValue = await acquireSessionLock(agent.id);
+  if (!lockValue) {
     throw new Error(
       `Agent ${agent.name} (${agent.id}) already has an active Copilot session. Concurrent execution blocked.`,
     );
   }
 
   // 1. Prepare agent workspace based on source type
+  // Resolve GitHub token: prefer credential reference over inline encrypted token
+  let resolvedGithubTokenEncrypted = agent.githubTokenEncrypted;
+  if (agent.githubTokenCredentialId && !resolvedGithubTokenEncrypted) {
+    const credId = agent.githubTokenCredentialId;
+    // Look up in user variables first (scoped to workflow owner), then workspace variables (scoped to workspace)
+    const userCred = await db.query.userVariables.findFirst({
+      where: and(eq(userVariables.id, credId), eq(userVariables.userId, userId)),
+    });
+    if (userCred) {
+      resolvedGithubTokenEncrypted = userCred.valueEncrypted;
+    } else if (workspaceId) {
+      const wsCred = await db.query.workspaceVariables.findFirst({
+        where: and(eq(workspaceVariables.id, credId), eq(workspaceVariables.workspaceId, workspaceId)),
+      });
+      if (wsCred) resolvedGithubTokenEncrypted = wsCred.valueEncrypted;
+    }
+  }
+
   const workspace = agent.sourceType === 'database'
     ? await prepareDbAgentWorkspace(agent.id)
     : await prepareAgentWorkspace({
@@ -489,7 +512,7 @@ async function executeCopilotSession(params: {
       agentFilePath: agent.agentFilePath!,
       skillsPaths: agent.skillsPaths ?? [],
       skillsDirectory: agent.skillsDirectory,
-      githubTokenEncrypted: agent.githubTokenEncrypted,
+      githubTokenEncrypted: resolvedGithubTokenEncrypted,
     });
 
   const toolCalls: Array<{ tool: string; args: unknown }> = [];
@@ -705,7 +728,7 @@ async function executeCopilotSession(params: {
       // Look up model's credit cost from the models table (scoped to workspace)
       const modelRecord = workspaceId
         ? await db.query.models.findFirst({
-            where: eq(models.name, model),
+            where: and(eq(models.name, model), eq(models.workspaceId, workspaceId)),
           })
         : null;
       const cost = modelRecord ? modelRecord.creditCost : '1.00';
@@ -751,6 +774,6 @@ async function executeCopilotSession(params: {
       try { await cleanup(); } catch { /* ignore */ }
     }
     await workspace.cleanup();
-    await releaseSessionLock(agent.id);
+    await releaseSessionLock(agent.id, lockValue);
   }
 }

@@ -38,6 +38,9 @@ system_events (audit log)
 | `agent_source_type` | `github_repo`, `database` |
 | `variable_type` | `property`, `credential` |
 | `reasoning_effort` | `low`, `medium`, `high` |
+| `resource_scope` | `user`, `workspace` |
+| `event_scope` | `workspace`, `user` |
+| `memory_type` | `observation`, `insight`, `strategy`, `lesson_learned`, `general` |
 
 ## Tables
 
@@ -83,8 +86,9 @@ AI agent definitions. Support GitHub repo or database-stored agent files.
 | skillsDirectory | varchar(500) | Directory containing skill .md files (github_repo only) |
 | skillsPaths | varchar(300)[] | Paths to skill .md files |
 | githubTokenEncrypted | text | AES-256-GCM encrypted |
+| githubTokenCredentialId | varchar(100) | References a credential variable for Git auth (alternative to inline token) |
 | builtinToolsEnabled | jsonb | Array of enabled built-in tool names. Default: all 8 tools |
-| scope | enum('user','workspace') | Resource scope. Default: 'user'. Immutable |
+| scope | resource_scope | Resource scope. Default: 'user'. Immutable |
 | status | agent_status | |
 | lastSessionAt | timestamp | |
 | createdAt, updatedAt | timestamp | |
@@ -119,7 +123,7 @@ Multi-step execution templates. Belong to a user, not an agent.
 | defaultAgentId | UUID FK → agents | Optional: workflow-level default agent |
 | defaultModel | varchar(100) | Optional: workflow-level default model |
 | defaultReasoningEffort | reasoning_effort | Optional: workflow-level default |
-| scope | enum('user','workspace') | Resource scope. Default: 'user'. Immutable |
+| scope | resource_scope | Resource scope. Default: 'user'. Immutable |
 | createdAt, updatedAt | timestamp | |
 
 ### workflow_steps
@@ -156,7 +160,7 @@ Configuration JSONB examples:
 - Time Schedule: `{ "cron": "0 9 * * 1-5", "timezone": "America/New_York" }` or `{ "interval_minutes": 60 }`
 - Exact Datetime: `{ "datetime": "2025-01-15T09:00:00Z", "reason": "Follow-up analysis" }` (one-shot, deactivated after firing)
 - Webhook: `{ "secret": "hmac-secret-encrypted", "allowed_ips": ["0.0.0.0/0"] }`
-- Event: `{ "event_type": "workflow.completed", "source_workflow_id": "uuid" }`
+- Event: `{ "eventName": "workflow.completed", "conditions": { "status": "completed" } }`
 
 ### workflow_executions
 Records of workflow runs.

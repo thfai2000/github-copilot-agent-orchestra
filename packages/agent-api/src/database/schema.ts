@@ -89,6 +89,7 @@ export const agents = pgTable('agents', {
   skillsPaths: varchar('skills_paths', { length: 300 }).array().notNull().default([]),
   skillsDirectory: varchar('skills_directory', { length: 300 }), // e.g. "skills/" — loads all .md files from this directory (github_repo only)
   githubTokenEncrypted: text('github_token_encrypted'),
+  githubTokenCredentialId: varchar('github_token_credential_id', { length: 100 }), // references a credential variable key
   builtinToolsEnabled: jsonb('builtin_tools_enabled').notNull().default([
     'schedule_next_workflow_execution', 'manage_webhook_trigger', 'record_decision',
     'memory_store', 'memory_retrieve',

@@ -60,12 +60,7 @@
               <select v-model="form.defaultModel"
                 class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
                 <option value="">None</option>
-                <option value="gpt-4.1">GPT-4.1</option>
-                <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-                <option value="gpt-4.1-nano">GPT-4.1 Nano</option>
-                <option value="o4-mini">o4-mini</option>
-                <option value="claude-sonnet-4">Claude Sonnet 4</option>
-                <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
               </select>
             </div>
             <div class="space-y-2">
@@ -123,12 +118,7 @@
                   <Label class="text-xs">Model</Label>
                   <select v-model="step.model" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
                     <option value="">{{ form.defaultModel ? 'Use Default' : 'None' }}</option>
-                    <option value="gpt-4.1">GPT-4.1</option>
-                    <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-                    <option value="gpt-4.1-nano">GPT-4.1 Nano</option>
-                    <option value="o4-mini">o4-mini</option>
-                    <option value="claude-sonnet-4">Claude Sonnet 4</option>
-                    <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                    <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
                   </select>
                 </div>
                 <div class="space-y-1">
@@ -200,6 +190,20 @@
                   </select>
                 </div>
               </div>
+              <!-- Event Conditions -->
+              <div v-if="trigger.triggerType === 'event'" class="mt-3 space-y-2">
+                <div class="flex items-center justify-between">
+                  <Label class="text-xs">Event Data Conditions (optional)</Label>
+                  <Button variant="ghost" size="sm" class="h-6 text-xs" type="button" @click="trigger.conditions.push({ key: '', value: '' })">+ Add Condition</Button>
+                </div>
+                <div v-for="(cond, ci) in trigger.conditions" :key="ci" class="flex gap-2 items-center">
+                  <Input v-model="cond.key" placeholder="Key (e.g. scope)" class="flex-1 text-xs" />
+                  <span class="text-xs text-muted-foreground">=</span>
+                  <Input v-model="cond.value" placeholder="Value (e.g. workspace)" class="flex-1 text-xs" />
+                  <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-destructive" type="button" @click="trigger.conditions.splice(ci, 1)">×</Button>
+                </div>
+                <p class="text-xs text-muted-foreground">Only fire when event data matches all conditions. Common keys: agentId, agentName, scope</p>
+              </div>
             </CardContent>
           </Card>
           <p v-if="form.triggers.length === 0" class="text-muted-foreground text-sm">No triggers added. You can always start the workflow manually.</p>
@@ -216,7 +220,7 @@
 
 <script setup lang="ts">
 interface StepForm { name: string; promptTemplate: string; agentId: string; model: string; reasoningEffort: string; timeoutSeconds: number; }
-interface TriggerForm { triggerType: string; cron: string; webhookPath: string; eventType: string; datetime: string; }
+interface TriggerForm { triggerType: string; cron: string; webhookPath: string; eventType: string; datetime: string; conditions: Array<{ key: string; value: string }>; }
 
 const { authHeaders, user } = useAuth();
 const headers = authHeaders();
@@ -244,11 +248,14 @@ const agents = computed(() => agentsData.value?.agents ?? []);
 const { data: namesData } = await useFetch('/api/events/names', { headers });
 const eventNames = computed(() => (namesData.value as any)?.eventNames ?? []);
 
+const { data: modelsData } = await useFetch('/api/quota/models', { headers });
+const availableModels = computed(() => (modelsData.value as any)?.models ?? []);
+
 function addStep() {
   form.steps.push({ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', timeoutSeconds: 300 });
 }
 function addTrigger() {
-  form.triggers.push({ triggerType: 'time_schedule', cron: '', webhookPath: '', eventType: '', datetime: '' });
+  form.triggers.push({ triggerType: 'time_schedule', cron: '', webhookPath: '', eventType: '', datetime: '', conditions: [] });
 }
 
 async function handleCreate() {
@@ -260,7 +267,14 @@ async function handleCreate() {
       if (t.triggerType === 'time_schedule') configuration.cron = t.cron;
       if (t.triggerType === 'exact_datetime') configuration.datetime = new Date(t.datetime).toISOString();
       if (t.triggerType === 'webhook') configuration.path = t.webhookPath;
-      if (t.triggerType === 'event') configuration.eventType = t.eventType;
+      if (t.triggerType === 'event') {
+        configuration.eventName = t.eventType;
+        if (t.conditions.length > 0) {
+          const conds: Record<string, string> = {};
+          for (const c of t.conditions) { if (c.key.trim()) conds[c.key.trim()] = c.value; }
+          if (Object.keys(conds).length > 0) configuration.conditions = conds;
+        }
+      }
       return { triggerType: t.triggerType, configuration };
     });
 

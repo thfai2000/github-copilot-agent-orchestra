@@ -46,6 +46,7 @@ const createAgentSchema = z.object({
   skillsPaths: z.array(z.string().max(300)).max(20).default([]),
   skillsDirectory: z.string().max(300).optional(),
   githubToken: z.string().max(500).optional(),
+  githubTokenCredentialId: z.string().uuid().optional(),
   scope: z.enum(['user', 'workspace']).default('user'),
   builtinToolsEnabled: z.array(z.enum(BUILTIN_TOOL_NAMES)).default([...BUILTIN_TOOL_NAMES]),
 }).refine(
@@ -85,6 +86,7 @@ agentsRouter.post('/', async (c) => {
       skillsPaths: body.skillsPaths,
       skillsDirectory: body.skillsDirectory ?? null,
       githubTokenEncrypted: body.githubToken ? encrypt(body.githubToken) : null,
+      githubTokenCredentialId: body.githubTokenCredentialId ?? null,
       builtinToolsEnabled: body.builtinToolsEnabled,
     })
     .returning();
@@ -135,6 +137,7 @@ const updateAgentSchema = z.object({
   skillsPaths: z.array(z.string().max(300)).max(20).optional(),
   skillsDirectory: z.string().max(300).nullable().optional(),
   githubToken: z.string().max(500).optional(),
+  githubTokenCredentialId: z.string().uuid().nullable().optional(),
   status: z.enum(['active', 'paused']).optional(),
   builtinToolsEnabled: z.array(z.enum(BUILTIN_TOOL_NAMES)).optional(),
 });
@@ -167,7 +170,16 @@ agentsRouter.put('/:id', async (c) => {
   if (body.agentFilePath) updateData.agentFilePath = body.agentFilePath;
   if (body.skillsPaths) updateData.skillsPaths = body.skillsPaths;
   if (body.skillsDirectory !== undefined) updateData.skillsDirectory = body.skillsDirectory;
-  if (body.githubToken) updateData.githubTokenEncrypted = encrypt(body.githubToken);
+  if (body.githubToken) {
+    updateData.githubTokenEncrypted = encrypt(body.githubToken);
+    // Clear credential reference when switching to inline token
+    updateData.githubTokenCredentialId = null;
+  }
+  if (body.githubTokenCredentialId !== undefined) {
+    updateData.githubTokenCredentialId = body.githubTokenCredentialId;
+    // Clear inline token when switching to credential reference
+    if (body.githubTokenCredentialId) updateData.githubTokenEncrypted = null;
+  }
   if (body.status) updateData.status = body.status;
   if (body.builtinToolsEnabled) updateData.builtinToolsEnabled = body.builtinToolsEnabled;
 

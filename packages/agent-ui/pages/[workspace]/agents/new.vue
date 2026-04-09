@@ -92,7 +92,13 @@
               </div>
               <div class="space-y-2">
                 <Label>GitHub Token (optional, encrypted at rest)</Label>
-                <Input v-model="form.githubToken" type="password" class="max-w-md" placeholder="ghp_..." />
+                <select v-model="form.githubTokenSource"
+                  class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring max-w-md">
+                  <option value="">No token / Enter manually</option>
+                  <option v-for="cred in credentials" :key="cred.id" :value="cred.id">{{ cred.key }} ({{ cred.scopeLabel }})</option>
+                </select>
+                <Input v-if="!form.githubTokenSource" v-model="form.githubToken" type="password" class="max-w-md" placeholder="ghp_..." />
+                <p v-if="form.githubTokenSource" class="text-xs text-muted-foreground">Token will be read from the selected credential at execution time.</p>
               </div>
             </div>
 
@@ -186,6 +192,7 @@ const form = reactive({
   agentFilePath: '',
   skillsDirectory: '',
   githubToken: '',
+  githubTokenSource: '' as string,
   scope: 'user' as 'user' | 'workspace',
   builtinToolsEnabled: BUILTIN_TOOLS.map(t => t.name),
   enabledPlugins: [] as string[],
@@ -196,6 +203,18 @@ const { data: pluginsData } = await useFetch('/api/plugins', { headers });
 const availablePlugins = computed(() => {
   const list = (pluginsData.value as any)?.plugins ?? [];
   return list.filter((p: any) => p.isAllowed);
+});
+
+// Fetch credentials for GitHub token selector
+const { data: userVarData } = await useFetch('/api/variables?scope=user', { headers });
+const { data: wsVarData } = await useFetch('/api/variables?scope=workspace', { headers });
+const credentials = computed(() => {
+  const userCreds = (userVarData.value as any)?.variables?.filter((v: any) => v.variableType === 'credential') ?? [];
+  const wsCreds = (wsVarData.value as any)?.variables?.filter((v: any) => v.variableType === 'credential') ?? [];
+  return [
+    ...userCreds.map((v: any) => ({ ...v, scopeLabel: 'Personal' })),
+    ...wsCreds.map((v: any) => ({ ...v, scopeLabel: 'Workspace' })),
+  ];
 });
 
 function toggleTool(name: string, checked: boolean | string) {
@@ -230,7 +249,11 @@ async function handleSubmit() {
       body.gitBranch = form.gitBranch;
       body.agentFilePath = form.agentFilePath;
       if (form.skillsDirectory) body.skillsDirectory = form.skillsDirectory;
-      if (form.githubToken) body.githubToken = form.githubToken;
+      if (form.githubTokenSource) {
+        body.githubTokenCredentialId = form.githubTokenSource;
+      } else if (form.githubToken) {
+        body.githubToken = form.githubToken;
+      }
     }
 
     const res = await $fetch<{ agent: { id: string } }>('/api/agents', { method: 'POST', headers, body });

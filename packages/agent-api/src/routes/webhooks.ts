@@ -76,7 +76,8 @@ webhooks.post('/:registrationId', async (c) => {
     });
 
     if (trigger && trigger.isActive) {
-      const payload = body ? JSON.parse(body) : {};
+      let payload = {};
+      try { payload = body ? JSON.parse(body) : {}; } catch { /* non-JSON body */ }
       await enqueueWorkflowExecution(trigger.workflowId, trigger.id, {
         type: 'webhook',
         eventId,

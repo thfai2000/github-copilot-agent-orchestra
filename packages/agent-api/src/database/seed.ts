@@ -1,5 +1,5 @@
 import { db } from './index.js';
-import { agents, workflows, workflowSteps, triggers, mcpServerConfigs, workspaces } from './schema.js';
+import { agents, workflows, workflowSteps, triggers, mcpServerConfigs, workspaces, models } from './schema.js';
 import { createLogger } from '@ai-trader/shared';
 
 const logger = createLogger('agent-seed');
@@ -24,6 +24,21 @@ async function seed() {
     logger.info(`Created workspace: ${workspace.name} (slug: ${workspace.slug})`);
   } else {
     logger.info('Default workspace already exists, skipping');
+  }
+
+  // Seed default models
+  const resolvedWsId = workspaceId ?? (await db.query.workspaces.findFirst({ where: (w, { eq }) => eq(w.slug, 'default') }))?.id;
+  if (resolvedWsId) {
+    const defaultModels = [
+      { name: 'claude-sonnet-4-6', provider: 'anthropic', description: 'Claude Sonnet 4.6 — fast, balanced model' },
+      { name: 'claude-opus-4-6', provider: 'anthropic', description: 'Claude Opus 4.6 — most capable model' },
+      { name: 'gpt-5.4', provider: 'openai', description: 'GPT-5.4 — advanced reasoning model' },
+      { name: 'gpt-5-mini', provider: 'openai', description: 'GPT-5 Mini — fast and cost-effective' },
+    ];
+    for (const m of defaultModels) {
+      await db.insert(models).values({ workspaceId: resolvedWsId, ...m }).onConflictDoNothing();
+    }
+    logger.info(`Seeded ${defaultModels.length} default models`);
   }
 
   // Create a sample agent

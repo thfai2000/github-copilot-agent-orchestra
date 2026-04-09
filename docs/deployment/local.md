@@ -58,6 +58,7 @@ After deployment:
 
 The seed script creates:
 - Default Workspace (slug: `default`, cannot be deleted)
+- Default Models: `claude-sonnet-4-6` (Anthropic), `claude-opus-4-6` (Anthropic), `gpt-5.4` (OpenAI), `gpt-5-mini` (OpenAI)
 - Sample agent, workflow, and triggers
 
 Run via: `npx tsx packages/agent-api/src/database/seed.ts`

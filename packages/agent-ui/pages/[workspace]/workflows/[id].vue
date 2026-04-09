@@ -82,8 +82,7 @@
                   <Label class="text-xs">Default Model</Label>
                   <select v-model="editWfForm.defaultModel" class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
                     <option value="">None</option>
-                    <option value="gpt-4.1">GPT-4.1</option><option value="gpt-4.1-mini">GPT-4.1 Mini</option><option value="gpt-4.1-nano">GPT-4.1 Nano</option>
-                    <option value="o4-mini">o4-mini</option><option value="claude-sonnet-4">Claude Sonnet 4</option><option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                    <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
                   </select>
                 </div>
                 <div class="space-y-1">
@@ -164,8 +163,7 @@
                     <Label class="text-xs">Model</Label>
                     <select v-model="step.model" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
                       <option value="">{{ workflow?.defaultModel ? 'Use Default' : 'None' }}</option>
-                      <option value="gpt-4.1">GPT-4.1</option><option value="gpt-4.1-mini">GPT-4.1 Mini</option><option value="gpt-4.1-nano">GPT-4.1 Nano</option>
-                      <option value="o4-mini">o4-mini</option><option value="claude-sonnet-4">Claude Sonnet 4</option><option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                      <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
                     </select>
                   </div>
                   <div class="space-y-1">
@@ -239,6 +237,20 @@
                     </select>
                   </div>
                 </div>
+                <!-- Event Conditions -->
+                <div v-if="triggerForm.triggerType === 'event'" class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <Label class="text-xs">Event Data Conditions (optional)</Label>
+                    <Button variant="ghost" size="sm" class="h-6 text-xs" type="button" @click="triggerForm.conditions.push({ key: '', value: '' })">+ Add Condition</Button>
+                  </div>
+                  <div v-for="(cond, ci) in triggerForm.conditions" :key="ci" class="flex gap-2 items-center">
+                    <Input v-model="cond.key" placeholder="Key (e.g. scope)" class="flex-1 text-xs" />
+                    <span class="text-xs text-muted-foreground">=</span>
+                    <Input v-model="cond.value" placeholder="Value (e.g. workspace)" class="flex-1 text-xs" />
+                    <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-destructive" type="button" @click="triggerForm.conditions.splice(ci, 1)">×</Button>
+                  </div>
+                  <p class="text-xs text-muted-foreground">Only fire when event data matches all conditions. Common keys: agentId, agentName, scope</p>
+                </div>
                 <div class="flex gap-2">
                   <Button type="submit" size="sm" :disabled="savingTrigger">{{ savingTrigger ? 'Saving…' : 'Add Trigger' }}</Button>
                   <Button variant="outline" size="sm" type="button" @click="showTriggerForm = false">Cancel</Button>
@@ -291,6 +303,9 @@ const { data: agentsData } = await useFetch('/api/agents', { headers });
 
 const { data: namesData } = await useFetch('/api/events/names', { headers });
 const eventNames = computed(() => (namesData.value as any)?.eventNames ?? []);
+
+const { data: modelsData } = await useFetch('/api/quota/models', { headers });
+const availableModels = computed(() => (modelsData.value as any)?.models ?? []);
 
 const workflow = computed(() => wfData.value?.workflow);
 const steps = computed(() => wfData.value?.steps ?? []);
@@ -461,7 +476,7 @@ async function handleSaveSteps() {
 const showTriggerForm = ref(false);
 const savingTrigger = ref(false);
 const triggerError = ref('');
-const triggerForm = reactive({ triggerType: 'time_schedule', cron: '', webhookPath: '', eventType: '', datetime: '' });
+const triggerForm = reactive({ triggerType: 'time_schedule', cron: '', webhookPath: '', eventType: '', datetime: '', conditions: [] as Array<{ key: string; value: string }> });
 
 async function handleAddTrigger() {
   triggerError.value = '';
@@ -471,7 +486,14 @@ async function handleAddTrigger() {
     if (triggerForm.triggerType === 'time_schedule') configuration.cron = triggerForm.cron;
     if (triggerForm.triggerType === 'exact_datetime') configuration.datetime = new Date(triggerForm.datetime).toISOString();
     if (triggerForm.triggerType === 'webhook') configuration.path = triggerForm.webhookPath;
-    if (triggerForm.triggerType === 'event') configuration.eventType = triggerForm.eventType;
+    if (triggerForm.triggerType === 'event') {
+      configuration.eventName = triggerForm.eventType;
+      if (triggerForm.conditions.length > 0) {
+        const conds: Record<string, string> = {};
+        for (const c of triggerForm.conditions) { if (c.key.trim()) conds[c.key.trim()] = c.value; }
+        if (Object.keys(conds).length > 0) configuration.conditions = conds;
+      }
+    }
 
     await $fetch('/api/triggers', {
       method: 'POST',
@@ -479,7 +501,7 @@ async function handleAddTrigger() {
       body: { workflowId, triggerType: triggerForm.triggerType, configuration },
     });
     showTriggerForm.value = false;
-    Object.assign(triggerForm, { triggerType: 'time_schedule', cron: '', webhookPath: '', eventType: '', datetime: '' });
+    Object.assign(triggerForm, { triggerType: 'time_schedule', cron: '', webhookPath: '', eventType: '', datetime: '', conditions: [] });
     await refreshTriggers();
   } catch (e: any) {
     triggerError.value = e?.data?.error || 'Failed to add trigger';

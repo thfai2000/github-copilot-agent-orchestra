@@ -74,8 +74,14 @@
                 </div>
               </div>
               <div class="space-y-2">
-                <Label>GitHub Token (leave blank to keep current)</Label>
-                <Input v-model="editForm.githubToken" type="password" class="max-w-md" placeholder="ghp_..." />
+                <Label>GitHub Token</Label>
+                <select v-model="editForm.githubTokenSource"
+                  class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring max-w-md">
+                  <option value="">No credential / Enter manually</option>
+                  <option v-for="cred in credentials" :key="cred.id" :value="cred.id">{{ cred.key }} ({{ cred.scopeLabel }})</option>
+                </select>
+                <Input v-if="!editForm.githubTokenSource" v-model="editForm.githubToken" type="password" class="max-w-md" placeholder="Leave blank to keep current, or enter new token (ghp_...)" />
+                <p v-if="editForm.githubTokenSource" class="text-xs text-muted-foreground">Token will be read from the selected credential at execution time.</p>
               </div>
             </template>
             <div class="space-y-2">
@@ -384,11 +390,23 @@ const mcpServers = computed(() => mcpData.value?.servers ?? []);
 const agentPlugins = computed(() => (pluginData.value as any)?.plugins ?? []);
 const agentFiles = computed(() => (filesData.value as any)?.files ?? []);
 
+// Credentials for GitHub token selector
+const { data: userVarData } = await useFetch('/api/variables?scope=user', { headers });
+const { data: wsVarData } = await useFetch('/api/variables?scope=workspace', { headers });
+const credentials = computed(() => {
+  const userCreds = (userVarData.value as any)?.variables?.filter((v: any) => v.variableType === 'credential') ?? [];
+  const wsCreds = (wsVarData.value as any)?.variables?.filter((v: any) => v.variableType === 'credential') ?? [];
+  return [
+    ...userCreds.map((v: any) => ({ ...v, scopeLabel: 'Personal' })),
+    ...wsCreds.map((v: any) => ({ ...v, scopeLabel: 'Workspace' })),
+  ];
+});
+
 // ── Inline Edit ─────────────────────────────────────────────────
 const editing = ref(false);
 const saving = ref(false);
 const editError = ref('');
-const editForm = reactive({ name: '', description: '', sourceType: 'github_repo' as string, gitRepoUrl: '', gitBranch: '', agentFilePath: '', skillsDirectory: '', githubToken: '' });
+const editForm = reactive({ name: '', description: '', sourceType: 'github_repo' as string, gitRepoUrl: '', gitBranch: '', agentFilePath: '', skillsDirectory: '', githubToken: '', githubTokenSource: '' as string });
 
 function startEdit() {
   Object.assign(editForm, {
@@ -396,7 +414,7 @@ function startEdit() {
     sourceType: (agent.value as any)?.sourceType || 'github_repo',
     gitRepoUrl: agent.value?.gitRepoUrl || '', gitBranch: agent.value?.gitBranch || 'main',
     agentFilePath: agent.value?.agentFilePath || '', skillsDirectory: (agent.value as any)?.skillsDirectory || '',
-    githubToken: '',
+    githubToken: '', githubTokenSource: (agent.value as any)?.githubTokenCredentialId || '',
   });
   editError.value = '';
   editing.value = true;
@@ -414,8 +432,15 @@ async function handleSave() {
       body.gitBranch = editForm.gitBranch;
       body.agentFilePath = editForm.agentFilePath;
       body.skillsDirectory = editForm.skillsDirectory || null;
+      if (editForm.githubTokenSource) {
+        body.githubTokenCredentialId = editForm.githubTokenSource;
+      } else if (editForm.githubToken) {
+        body.githubToken = editForm.githubToken;
+      } else if ((agent.value as any)?.githubTokenCredentialId) {
+        // Credential was cleared — explicitly send null to remove the reference
+        body.githubTokenCredentialId = null;
+      }
     }
-    if (editForm.githubToken) body.githubToken = editForm.githubToken;
     await $fetch(`/api/agents/${agentId}`, { method: 'PUT', headers, body });
     editing.value = false;
     await refreshAgent();

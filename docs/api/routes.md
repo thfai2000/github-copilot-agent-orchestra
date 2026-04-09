@@ -123,3 +123,11 @@ All routes under `/api/` are served by the Agent API (Hono, port 4002).
 | POST | `/api/mcp-servers` | JWT | Add MCP server config |
 | PUT | `/api/mcp-servers/:id` | JWT | Update config |
 | DELETE | `/api/mcp-servers/:id` | JWT | Delete config |
+
+## Supervisor
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/supervisor/emergency-stop` | JWT admin | Pause all active agents |
+| POST | `/api/supervisor/resume-all` | JWT admin | Resume all paused agents |
+| GET | `/api/supervisor/status` | JWT admin | Get system-wide supervisor status |

@@ -18,7 +18,10 @@
     "format:check": "prettier --check \"packages/*/src/**/*.ts\"",
     "db:generate": "npm run db:generate --workspace=packages/agent-api",
     "db:push": "npm run db:push --workspace=packages/agent-api",
-    "db:seed": "npm run db:seed --workspace=packages/agent-api"
+    "db:seed": "npm run db:seed --workspace=packages/agent-api",
+    "docs:dev": "vitepress dev website",
+    "docs:build": "vitepress build website",
+    "docs:preview": "vitepress preview website"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -28,6 +31,7 @@
     "eslint": "^10.2.0",
     "prettier": "^3.8.1",
     "shadcn": "^4.1.2",
-    "typescript-eslint": "^8.58.0"
+    "typescript-eslint": "^8.58.0",
+    "vitepress": "^1.6.4"
   }
 }
