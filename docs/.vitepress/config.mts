@@ -5,15 +5,16 @@ export default withMermaid(
   defineConfig({
     title: 'Open Agent Orchestra',
     description: 'An autonomous AI workflow engine powered by the GitHub Copilot SDK. Build cost-effective AI teams with segregation of duties, secure credential management, and multi-step workflows.',
+    base: '/open-agent-orchestra/',
     ignoreDeadLinks: [
       /localhost/,
     ],
     head: [
-      ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+      ['link', { rel: 'icon', type: 'image/png', href: '/open-agent-orchestra/logo.png' }],
     ],
     appearance: true,
     themeConfig: {
-      logo: '/logo.svg',
+      logo: '/logo.png',
       nav: [
         { text: 'Home', link: '/' },
         { text: 'Guide', link: '/guide/what-is-oao' },
@@ -89,7 +90,7 @@ export default withMermaid(
         ],
       },
       socialLinks: [
-        { icon: 'github', link: 'https://github.com/thfai2000/github-copilot-agent-orchestra' },
+        { icon: 'github', link: 'https://github.com/thfai2000/open-agent-orchestra' },
       ],
       footer: {
         message: 'Built with the GitHub Copilot SDK',

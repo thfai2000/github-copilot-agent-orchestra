@@ -158,8 +158,8 @@ query_params='{"api_key": "{{ credentials.SERVICE_API_KEY }}"}'
 Workflow step prompt templates also support Jinja2. While you should **never** put raw credentials in prompts, you can use properties to inject non-secret configuration:
 
 ```
-Analyze the market data for {{ properties.TRADING_PAIR }}.
-Use the financial-data MCP tool to fetch the latest quotes.
+Analyze the data for {{ properties.DATA_SOURCE }}.
+Use the analytics MCP tool to fetch the latest metrics.
 The previous analysis was: {{ precedent_output }}
 ```
 

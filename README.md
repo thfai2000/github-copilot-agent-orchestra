@@ -1,8 +1,14 @@
-# Agent Orchestration Platform
+<p align="center">
+  <img src="docs/public/logo.png" alt="Open Agent Orchestra" width="200" />
+</p>
+
+# OAO — Open Agent Orchestra
 
 Autonomous AI workflow engine powered by the **GitHub Copilot SDK**.
 
 Agents are defined as Git-hosted markdown files with skills. The platform clones agent repos, reads their instructions, creates Copilot sessions with custom tools, and executes multi-step workflows autonomously.
+
+**Documentation:** [https://thfai2000.github.io/open-agent-orchestra/](https://thfai2000.github.io/open-agent-orchestra/)
 
 ## Features
 
@@ -20,23 +26,23 @@ Agents are defined as Git-hosted markdown files with skills. The platform clones
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐
-│  Agent UI   │────▶│  Agent API  │────▶│  GitHub Copilot │
+│   OAO-UI    │────▶│   OAO-API   │────▶│  GitHub Copilot │
 │  (Nuxt 3)   │     │  (Hono v4)  │     │     SDK         │
 │  port 3002  │     │  port 4002  │     └─────────────────┘
 └─────────────┘     │             │
                     │  ┌────────┐ │     ┌─────────────────┐
                     │  │BullMQ  │─┤     │  MCP Servers    │
                     │  │Workers │ │────▶│  (stdio, any)   │
-                    │  └────────┘ │     │  user-installed  │
+                    │  └────────┘ │     │  user-installed |  │             |     |                 |
                     └──────┬──────┘     └─────────────────┘
                            │
               ┌────────────┼───────────┐
               │            │           │
-        ┌─────────┐ ┌─────────┐ ┌─────────┐
+        ┌────────-─┐ ┌─────────┐ ┌─────────┐
         │PostgreSQL│ │  Redis  │ │Git Repos│
         │+pgvector │ │ (Queue) │ │ (Agent  │
-        └─────────┘ └─────────┘ │  Files) │
-                                └─────────┘
+        └────────-─┘ └─────────┘ │  Files) │
+                                 └─────────┘
 ```
 
 ### Tool Architecture
@@ -96,15 +102,34 @@ npm run dev
 
 ```bash
 # Build Docker images
-BUILD_TAG=v1.0 bash build.sh
+BUILD_TAG=1.0.0 bash build.sh
 
 # Set up Helm values
-cp helm/agent-platform/values.yaml.template helm/agent-platform/values.yaml
+cp helm/oao-platform/values.yaml.template helm/oao-platform/values.yaml
 # Edit values.yaml with your secrets
 
 # Deploy
 bash deploy.sh
 ```
+
+### Superadmin Account
+
+On first deploy, the Helm hook automatically creates a **superadmin** account with a random password. To find the password, check the database migration job logs:
+
+```bash
+kubectl -n open-agent-orchestra logs job/oao-platform-db-migrate | grep -A 5 "SUPERADMIN"
+```
+
+You will see output like:
+
+```
+  SUPERADMIN ACCOUNT CREATED
+  Email:    admin@oao.local
+  Password: <random-password>
+  ⚠️  Change this password immediately after first login!
+```
+
+**Important:** Log in with these credentials and change the password immediately via **Settings → Change Password** in the UI.
 
 ## Tech Stack
 
@@ -125,13 +150,12 @@ bash deploy.sh
 ```
 packages/
 ├── shared/       # Auth, utils, middleware, validation
-├── agent-api/    # Hono API server (port 4002)
-├── agent-ui/     # Nuxt 3 dashboard (port 3002)
+├── oao-api/      # Hono API server (port 4002)
+├── oao-ui/       # Nuxt 3 dashboard (port 3002)
 └── ui-base/      # Shared Nuxt layer (TailwindCSS, auth)
 
 helm/
-├── agent-platform/   # Helm chart
-└── infrastructure/   # Redis + namespace
+└── oao-platform/   # Helm chart
 ```
 
 ## License

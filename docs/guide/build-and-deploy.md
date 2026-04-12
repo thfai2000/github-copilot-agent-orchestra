@@ -14,8 +14,8 @@ Build **Open Agent Orchestra (OAO)** from source code for local development or c
 ## 1. Clone & Install
 
 ```bash
-git clone https://github.com/thfai2000/github-copilot-agent-orchestra.git
-cd github-copilot-agent-orchestra
+git clone https://github.com/thfai2000/open-agent-orchestra.git
+cd open-agent-orchestra
 npm install
 ```
 
@@ -29,7 +29,7 @@ Edit `.env`:
 
 ```ini
 # Database
-AGENT_DATABASE_URL=postgresql://ai_trader:ai_trader_dev@localhost:15432/agent_db
+AGENT_DATABASE_URL=postgresql://oao:oao_dev@localhost:15432/agent_db
 
 # Redis
 REDIS_URL=redis://localhost:6379
@@ -49,7 +49,7 @@ Before **any** Docker build, always run these checks and fix all errors:
 ```bash
 # TypeScript checks
 npx tsc --noEmit -p packages/shared/tsconfig.json
-npx tsc --noEmit -p packages/agent-api/tsconfig.json
+npx tsc --noEmit -p packages/oao-api/tsconfig.json
 
 # Lint
 npm run lint
@@ -61,28 +61,28 @@ npm test
 ## 4. Build Docker Images
 
 ```bash
-BUILD_TAG=v1.0 ./build.sh
+BUILD_TAG=1.0.0 ./build.sh
 ```
 
 This builds two images:
 
 | Image | Port | Description |
 |---|---|---|
-| `oao-api:v1.0` | 4002 | OAO-API (REST API + BullMQ worker) |
-| `oao-ui:v1.0` | 3002 | OAO-UI (Nuxt 3 dashboard) |
+| `oao-api:1.0.0` | 4002 | OAO-API (REST API + BullMQ worker) |
+| `oao-ui:1.0.0` | 3002 | OAO-UI (Nuxt 3 dashboard) |
 
 ## 5. Deploy
 
 ### Option A: Deploy to Docker Desktop Kubernetes
 
-Update image tags in `helm/agent-platform/values.yaml`:
+Update image tags in `helm/oao-platform/values.yaml`:
 
 ```yaml
 api:
-  image: oao-api:v1.0
+  image: oao-api:1.0.0
 
 ui:
-  image: oao-ui:v1.0
+  image: oao-ui:1.0.0
 ```
 
 Run the deploy script:
@@ -92,9 +92,9 @@ Run the deploy script:
 ```
 
 This will:
-1. Deploy PostgreSQL 16 + Redis 7 to the `agent-orchestra` namespace
+1. Deploy PostgreSQL 16 + Redis 7 to the `open-agent-orchestra` namespace
 2. Deploy OAO-API, OAO-UI, and Scheduler services
-3. Push database schema via Drizzle
+3. Auto-push database schema via Helm hook (Drizzle `post-install`/`post-upgrade` Job)
 4. Set up port-forwards for localhost access
 
 ### Option B: Use Docker Compose
@@ -111,9 +111,21 @@ oao-ui:
 
 ## 6. Seed Default Data (First Deploy)
 
+Seed data (default workspace, models, and superadmin account) is applied automatically via the Helm `post-install`/`post-upgrade` hook after schema push.
+
+To check the superadmin password:
+
 ```bash
-cd packages/agent-api
-AGENT_DATABASE_URL="postgresql://ai_trader:ai_trader_dev@localhost:15432/agent_db" \
+kubectl -n open-agent-orchestra logs job/oao-platform-db-migrate | grep -A 5 "SUPERADMIN"
+```
+
+**Important:** Change the superadmin password immediately after first login via **Settings → Change Password**.
+
+For manual seeding (local development):
+
+```bash
+cd packages/oao-api
+AGENT_DATABASE_URL="postgresql://oao:oao_dev@localhost:15432/agent_db" \
   npx tsx src/database/seed.ts
 ```
 
@@ -150,14 +162,14 @@ After code changes, always follow this cycle:
 ```bash
 # 1. Pre-build checks — fix ALL errors first
 npx tsc --noEmit -p packages/shared/tsconfig.json
-npx tsc --noEmit -p packages/agent-api/tsconfig.json
+npx tsc --noEmit -p packages/oao-api/tsconfig.json
 npm run lint && npm test
 
 # 2. Bump version and rebuild
 BUILD_TAG=v1.1 ./build.sh
 
 # 3. Update values.yaml with new tag
-# ...edit helm/agent-platform/values.yaml...
+# ...edit helm/oao-platform/values.yaml...
 
 # 4. Redeploy
 ./deploy.sh

@@ -1,4 +1,4 @@
-# Copilot Instructions for Agent Orchestration Platform
+# Copilot Instructions for OAO — Open Agent Orchestra
 
 ## ⚠️ MANDATORY — Read Before Doing Anything
 
@@ -10,49 +10,56 @@
 
 - **No GitHub Actions / CI/CD** — Build and deploy locally only using `build.sh` and `deploy.sh`
 - **Helm Charts, NOT Kustomize** — Kubernetes deployment uses Helm charts:
-  - `helm/agent-platform/` — Agent Platform chart
-  - `helm/infrastructure/` — Redis + namespace
+  - `helm/oao-platform/` — OAO Platform chart
 - **Local Kubernetes** — Docker Desktop Kubernetes, no cloud providers
 - **Pre-build checks** — Before ANY Docker build (`build.sh`), always run these checks first and fix all errors:
   1. `npx tsc --noEmit -p packages/shared/tsconfig.json` — TypeScript check shared
-  2. `npx tsc --noEmit -p packages/agent-api/tsconfig.json` — TypeScript check agent-api
+  2. `npx tsc --noEmit -p packages/oao-api/tsconfig.json` — TypeScript check oao-api
   3. `npm run lint` — ESLint across all packages
   4. `npm test` — Run all tests
   Only proceed with `build.sh` after all checks pass.
 - **Always rebuild and redeploy after changes** — For any code changes:
   1. Run pre-build checks (TypeScript, ESLint, tests) — fix all errors first
-  2. Rebuild Docker images with `build.sh` (bump `BUILD_TAG` version)
-  3. Update image tags in `helm/agent-platform/values.yaml`
-  4. Push DB schema changes if necessary (`drizzle-kit push` via `deploy.sh`)
+  2. Rebuild Docker images with `build.sh` (bump `BUILD_TAG` using semantic versioning)
+  3. Update image tags in `helm/oao-platform/values.yaml`
+  4. DB schema is pushed automatically via Helm hook (`post-install`/`post-upgrade` Job)
   5. Redeploy via `deploy.sh`
-  6. After deployment, verify the Agent UI (http://localhost:3002) is accessible
+  6. After deployment, verify the OAO-UI (http://localhost:3002) is accessible
+- **Semantic Versioning** — All versions follow `major.minor.patch` format (e.g. `1.0.0`):
+  - **Patch** (`1.0.x`): Bug fixes, typos, small safe changes
+  - **Minor** (`1.x.0`): New features, non-breaking changes, new API endpoints
+  - **Major** (`x.0.0`): Breaking changes, schema migrations that drop data, API contract changes
+  - Always bump the version according to what changed — do NOT always bump major
+  - `BUILD_TAG` must match the version (e.g. `BUILD_TAG=1.0.1 bash build.sh`)
+  - Update image tags in `helm/oao-platform/values.yaml` to match
+  - Publish to DockerHub with `DOCKER_USERNAME=thfai2000 BUILD_TAG=1.0.1 bash publish.sh`
 
 ---
 
 ## Project Overview
 
-**Agent Orchestration Platform** — An autonomous AI workflow engine powered by the GitHub Copilot SDK. Agents are defined as Git-hosted markdown files with skills, connected to workflows with scheduled/webhook/manual triggers. The platform clones agent repos, reads their instructions, creates Copilot sessions with custom tools, and executes multi-step workflows autonomously.
+**OAO — Open Agent Orchestra** — An autonomous AI workflow engine powered by the GitHub Copilot SDK. Agents are defined as Git-hosted markdown files with skills, connected to workflows with scheduled/webhook/manual triggers. The platform clones agent repos, reads their instructions, creates Copilot sessions with custom tools, and executes multi-step workflows autonomously.
 
 | Component | Purpose | Port |
 |-----------|---------|------|
-| Agent API | Agents, workflows, triggers, executions, Copilot sessions | :4002 |
-| Agent UI | Dashboard for managing agents and viewing executions | :3002 |
+| OAO-API | Agents, workflows, triggers, executions, Copilot sessions | :4002 |
+| OAO-UI | Dashboard for managing agents and viewing executions | :3002 |
 
 ## Monorepo Structure
 
 ```
 packages/
-├── shared/       # @ai-trader/shared — auth, utils, types, middleware
-├── agent-api/    # @ai-trader/agent-api — Hono v4.6 (port 4002)
-├── agent-ui/     # @ai-trader/agent-ui — Nuxt 3 (port 3002)
-└── ui-base/      # @ai-trader/ui-base — Shared Nuxt layer (tailwind, auth)
+├── shared/       # @oao/shared — auth, utils, types, middleware
+├── oao-api/      # @oao/oao-api — Hono v4.6 (port 4002)
+├── oao-ui/       # @oao/oao-ui — Nuxt 3 (port 3002)
+└── ui-base/      # @oao/ui-base — Shared Nuxt layer (tailwind, auth)
 
 helm/
-├── agent-platform/   # Helm chart for Agent Platform
-└── infrastructure/   # Redis + namespace
+└── oao-platform/   # Helm chart for OAO Platform
 
 build.sh              # Build Docker images locally
 deploy.sh             # Deploy to local K8s via Helm
+build-and-deploy-doc.sh  # Build & deploy VitePress docs to GitHub Pages
 ```
 
 ## Technology Stack
@@ -86,7 +93,7 @@ deploy.sh             # Deploy to local K8s via Helm
 - Write path pattern: `db.transaction(async (tx) => { ... })` for multi-table mutations
 
 ### API Routes (Hono)
-- Routes in `packages/agent-api/src/routes/{resource}.ts` as Hono sub-apps
+- Routes in `packages/oao-api/src/routes/{resource}.ts` as Hono sub-apps
 - Mounted via `app.route('/api/{resource}', resourceRoutes)` in server.ts
 - Return typed JSON responses with `c.json()` and status codes
 - Validate query/body params with Zod at the top of every handler
@@ -149,3 +156,4 @@ See `.env.example`. Critical:
 - `JWT_SECRET` — Secret for JWT signing/verification
 - `ENCRYPTION_KEY` — 32-byte hex for AES-256-GCM
 - `GITHUB_TOKEN` — For Copilot SDK
+- `DOCKER_USERNAME` — Docker Hub username (for publish.sh)

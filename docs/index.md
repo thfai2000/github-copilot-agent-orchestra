@@ -14,7 +14,7 @@ hero:
       link: /guide/docker
     - theme: alt
       text: GitHub
-      link: https://github.com/thfai2000/github-copilot-agent-orchestra
+      link: https://github.com/thfai2000/open-agent-orchestra
 
 features:
   - icon: 👥

@@ -3,19 +3,20 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy root workspace config + all workspace package.json files for npm ci
+# Copy root workspace config + all workspace package.json files
 COPY package.json package-lock.json* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/ui-base/package.json packages/ui-base/
-COPY packages/agent-api/package.json packages/agent-api/
-COPY packages/agent-ui/package.json packages/agent-ui/
-RUN npm ci --ignore-scripts
+COPY packages/oao-api/package.json packages/oao-api/
+COPY packages/oao-ui/package.json packages/oao-ui/
+# Remove lockfile to ensure platform-specific native bindings (oxc-parser) resolve for Alpine
+RUN rm -f package-lock.json && npm install
 
-# Copy source (shared + ui-base + agent-ui needed at build time)
+# Copy source (shared + ui-base + oao-ui needed at build time)
 COPY packages/shared packages/shared
 COPY packages/ui-base packages/ui-base
-COPY packages/agent-ui packages/agent-ui
-RUN npm run build --workspace=packages/agent-ui
+COPY packages/oao-ui packages/oao-ui
+RUN npm run build --workspace=packages/oao-ui
 
 # ── Production Stage ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
@@ -24,7 +25,7 @@ WORKDIR /app
 
 RUN addgroup -S app && adduser -S app -G app
 
-COPY --from=builder /app/packages/agent-ui/.output .output
+COPY --from=builder /app/packages/oao-ui/.output .output
 
 ENV NODE_ENV=production
 ENV NITRO_PORT=3002

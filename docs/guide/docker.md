@@ -26,15 +26,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: ai_trader
-      POSTGRES_PASSWORD: ai_trader_dev
+      POSTGRES_USER: oao
+      POSTGRES_PASSWORD: oao_dev
       POSTGRES_DB: agent_db
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ai_trader -d agent_db"]
+      test: ["CMD-SHELL", "pg_isready -U oao -d agent_db"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -56,7 +56,7 @@ services:
     environment:
       NODE_ENV: production
       AGENT_API_PORT: "4002"
-      AGENT_DATABASE_URL: postgresql://ai_trader:ai_trader_dev@postgres:5432/agent_db
+      AGENT_DATABASE_URL: postgresql://oao:oao_dev@postgres:5432/agent_db
       REDIS_URL: redis://redis:6379
       JWT_SECRET: your-jwt-secret-change-in-production
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

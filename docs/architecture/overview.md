@@ -109,12 +109,12 @@ sequenceDiagram
 ```
 packages/
 ├── shared/       # Auth, encryption, middleware, utilities
-├── agent-api/    # Hono REST API + workers + scheduler
-├── agent-ui/     # Nuxt 3 dashboard
+├── oao-api/      # Hono REST API + workers + scheduler
+├── oao-ui/       # Nuxt 3 dashboard
 └── ui-base/      # Shared Nuxt layer (Tailwind, auth composables)
 
 helm/
-├── agent-platform/   # API + UI + Scheduler + PostgreSQL + Redis
+├── oao-platform/   # API + UI + Scheduler + PostgreSQL + Redis
 └── infrastructure/   # Redis + namespace
 ```
 

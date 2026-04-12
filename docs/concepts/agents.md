@@ -14,9 +14,9 @@ An **agent** is an AI personality defined as a markdown file — either hosted i
 An agent's main file is a markdown document that serves as the system message for the Copilot session:
 
 ```markdown
-# Trading Analyst Agent
+# Data Analyst Agent
 
-You are a professional financial analyst specializing in cryptocurrency markets.
+You are a professional data analyst specializing in business intelligence.
 
 ## Personality
 - Data-driven and analytical
@@ -102,11 +102,11 @@ Agents can connect to [Model Context Protocol (MCP)](https://modelcontextprotoco
 
 | Field | Description | Example |
 |---|---|---|
-| **Name** | Display name | `Trading Platform` |
+| **Name** | Display name | `Analytics Platform` |
 | **Command** | Executable to spawn | `node`, `python`, `npx` |
 | **Args** | Command arguments | `["server.js", "--port", "3000"]` |
-| **Env Mapping** | Map credential variables → env vars | `{"API_KEY": "TRADING_API_KEY"}` |
-| **Write Tools** | Tools requiring permission approval | `["execute_trade"]` |
+| **Env Mapping** | Map credential variables → env vars | `{"API_KEY": "SERVICE_API_KEY"}` |
+| **Write Tools** | Tools requiring permission approval | `["send_notification"]` |
 
 ```mermaid
 sequenceDiagram
@@ -137,8 +137,8 @@ MCP servers often need credentials. Use env mapping to securely inject them:
 ```json
 {
   "envMapping": {
-    "TRADING_API_URL": "TRADING_API_URL",
-    "TRADING_API_KEY": "TRADING_API_KEY"
+    "SERVICE_API_URL": "SERVICE_API_URL",
+    "SERVICE_API_KEY": "SERVICE_API_KEY"
   }
 }
 ```

@@ -26,12 +26,12 @@ if ! kubectl cluster-info &>/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -f "${HELM_DIR}/agent-platform/values.yaml" ]; then
-  echo "Error: helm/agent-platform/values.yaml not found." >&2
+if [ ! -f "${HELM_DIR}/oao-platform/values.yaml" ]; then
+  echo "Error: helm/oao-platform/values.yaml not found." >&2
   echo "" >&2
   echo "Create it from the template:" >&2
-  echo "  cp helm/agent-platform/values.yaml.template helm/agent-platform/values.yaml" >&2
-  echo "  # Then edit helm/agent-platform/values.yaml with your real credentials" >&2
+  echo "  cp helm/oao-platform/values.yaml.template helm/oao-platform/values.yaml" >&2
+  echo "  # Then edit helm/oao-platform/values.yaml with your real credentials" >&2
   exit 1
 fi
 
@@ -43,46 +43,35 @@ echo "════════════════════════�
 
 echo ""
 echo "▸ [1/1] Deploying Open Agent Orchestra ..."
-helm upgrade --install agent-platform "${HELM_DIR}/agent-platform" \
-  -f "${HELM_DIR}/agent-platform/values.yaml" \
-  --namespace agent-orchestra --create-namespace
+helm upgrade --install oao-platform "${HELM_DIR}/oao-platform" \
+  -f "${HELM_DIR}/oao-platform/values.yaml" \
+  --namespace open-agent-orchestra --create-namespace
 
 echo "▸ Waiting for redis to be ready ..."
-kubectl -n agent-orchestra rollout status deployment/redis --timeout=60s 2>/dev/null || true
+kubectl -n open-agent-orchestra rollout status deployment/redis --timeout=60s 2>/dev/null || true
 
 echo "▸ Waiting for postgres to be ready ..."
-kubectl -n agent-orchestra rollout status statefulset/postgres --timeout=120s 2>/dev/null || true
+kubectl -n open-agent-orchestra rollout status statefulset/postgres --timeout=120s 2>/dev/null || true
 
-echo "▸ Waiting for agent-api to be ready ..."
-kubectl -n agent-orchestra rollout status deployment/agent-api --timeout=120s 2>/dev/null || true
+echo "▸ Waiting for oao-api to be ready ..."
+kubectl -n open-agent-orchestra rollout status deployment/oao-api --timeout=120s 2>/dev/null || true
 
-echo "▸ Waiting for agent-ui to be ready ..."
-kubectl -n agent-orchestra rollout status deployment/agent-ui --timeout=120s 2>/dev/null || true
+echo "▸ Waiting for oao-ui to be ready ..."
+kubectl -n open-agent-orchestra rollout status deployment/oao-ui --timeout=120s 2>/dev/null || true
 
-# ─── Database schema push ─────────────────────────────────────────────────────
-
-echo ""
-echo "▸ [3/3] Running database schema push (Drizzle)..."
-
-kubectl -n agent-orchestra port-forward pod/postgres-0 15432:5432 &>/dev/null &
-PF_PID=$!
-sleep 3
-
-echo "▸ Pushing agent DB schema..."
-(cd "${SCRIPT_DIR}/packages/agent-api" && AGENT_DATABASE_URL="postgresql://ai_trader:ai_trader_dev@localhost:15432/agent_db" npx drizzle-kit push 2>&1 || true)
-
-kill $PF_PID 2>/dev/null || true
+# NOTE: Database schema is pushed automatically via Helm post-install/post-upgrade hook
+# (see templates/job-db-migrate.yaml). No manual drizzle-kit push needed.
 
 # ─── Port forwards ────────────────────────────────────────────────────────────
 
 echo ""
 echo "▸ Setting up port-forwards for localhost access..."
 
-pkill -f "kubectl.*port-forward.*agent-orchestra" 2>/dev/null || true
+pkill -f "kubectl.*port-forward.*open-agent-orchestra" 2>/dev/null || true
 sleep 1
 
-kubectl -n agent-orchestra port-forward svc/agent-ui 3002:3002 &>/dev/null &
-kubectl -n agent-orchestra port-forward svc/agent-api 4002:4002 &>/dev/null &
+kubectl -n open-agent-orchestra port-forward svc/oao-ui 3002:3002 &>/dev/null &
+kubectl -n open-agent-orchestra port-forward svc/oao-api 4002:4002 &>/dev/null &
 sleep 2
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
@@ -92,15 +81,15 @@ echo "════════════════════════�
 echo "  ✓ Deployment complete"
 echo ""
 echo "  Helm release:"
-echo "    agent-platform      — OAO-API + OAO-UI + PostgreSQL + Redis"
+echo "    oao-platform      — OAO-API + OAO-UI + PostgreSQL + Redis"
 echo ""
 echo "  Access (via port-forward):"
 echo "    OAO-UI:   http://localhost:3002"
 echo "    OAO-API:  http://localhost:4002"
 echo ""
 echo "  Useful commands:"
-echo "    kubectl -n agent-orchestra get pods"
-echo "    kubectl -n agent-orchestra logs -f deployment/agent-api"
-echo "    helm list -n agent-orchestra"
-echo "    helm uninstall agent-platform -n agent-orchestra"
+echo "    kubectl -n open-agent-orchestra get pods"
+echo "    kubectl -n open-agent-orchestra logs -f deployment/oao-api"
+echo "    helm list -n open-agent-orchestra"
+echo "    helm uninstall oao-platform -n open-agent-orchestra"
 echo "═══════════════════════════════════════════════════════════════"

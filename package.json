@@ -1,5 +1,5 @@
 {
-  "name": "github-copilot-agent-orchestra",
+  "name": "open-agent-orchestra",
   "version": "1.0.0",
   "private": true,
   "description": "Open Agent Orchestra (OAO) — Autonomous AI workflow engine powered by GitHub Copilot SDK",
@@ -7,21 +7,22 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=packages/agent-ui & npm run dev --workspace=packages/agent-api",
-    "dev:api": "npm run dev --workspace=packages/agent-api",
-    "dev:ui": "npm run dev --workspace=packages/agent-ui",
+    "dev": "npm run dev --workspace=packages/oao-ui & npm run dev --workspace=packages/oao-api",
+    "dev:api": "npm run dev --workspace=packages/oao-api",
+    "dev:ui": "npm run dev --workspace=packages/oao-ui",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint packages/*/src/**/*.ts",
     "lint:fix": "eslint packages/*/src/**/*.ts --fix",
     "format": "prettier --write \"packages/*/src/**/*.ts\"",
     "format:check": "prettier --check \"packages/*/src/**/*.ts\"",
-    "db:generate": "npm run db:generate --workspace=packages/agent-api",
-    "db:push": "npm run db:push --workspace=packages/agent-api",
-    "db:seed": "npm run db:seed --workspace=packages/agent-api",
+    "db:generate": "npm run db:generate --workspace=packages/oao-api",
+    "db:push": "npm run db:push --workspace=packages/oao-api",
+    "db:seed": "npm run db:seed --workspace=packages/oao-api",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "docs:deploy": "npm run docs:build && cd docs/.vitepress/dist && touch .nojekyll && git init && git checkout -b gh-pages && git add -A && git commit -m 'docs: deploy' && git push -f git@github.com:thfai2000/open-agent-orchestra.git gh-pages && cd -"
   },
   "engines": {
     "node": ">=20.0.0"

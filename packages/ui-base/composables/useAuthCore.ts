@@ -8,7 +8,7 @@ export interface AuthUser {
 }
 
 /**
- * Core auth composable shared between Trading UI and Agent UI.
+ * Core auth composable shared across OAO UI layers.
  * Handles token/user state management, cookies, and auth headers.
  */
 export function useAuthCore() {

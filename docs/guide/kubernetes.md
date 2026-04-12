@@ -23,8 +23,8 @@ helm pull oci://registry-1.docker.io/<dockerhub-user>/oao-platform --version 1.0
 Or, if you have the chart locally:
 
 ```bash
-git clone https://github.com/thfai2000/github-copilot-agent-orchestra.git
-cd github-copilot-agent-orchestra
+git clone https://github.com/thfai2000/open-agent-orchestra.git
+cd open-agent-orchestra
 ```
 
 ### 2. Create Values File
@@ -32,7 +32,7 @@ cd github-copilot-agent-orchestra
 Create a `my-values.yaml` with your configuration:
 
 ```yaml
-namespace: agent-orchestra
+namespace: open-agent-orchestra
 
 api:
   image: <dockerhub-user>/oao-api:v1.0    # or local: oao-api:v1.0
@@ -68,7 +68,7 @@ config:
 
 secrets:
   POSTGRES_PASSWORD: "change-me-in-production"
-  AGENT_DATABASE_URL: "postgresql://ai_trader:change-me-in-production@postgres:5432/agent_db"
+  AGENT_DATABASE_URL: "postgresql://oao:change-me-in-production@postgres:5432/agent_db"
   REDIS_URL: "redis://redis:6379"
   JWT_SECRET: "your-jwt-secret-change-in-production"
   ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -78,39 +78,31 @@ secrets:
 ### 3. Deploy with Helm
 
 ```bash
-helm upgrade --install oao-platform helm/agent-platform \
+helm upgrade --install oao-platform helm/oao-platform \
   -f my-values.yaml \
-  --namespace agent-orchestra --create-namespace
+  --namespace open-agent-orchestra --create-namespace
 ```
 
 ### 4. Wait for Pods
 
 ```bash
-kubectl -n agent-orchestra rollout status deployment/redis --timeout=60s
-kubectl -n agent-orchestra rollout status statefulset/postgres --timeout=120s
-kubectl -n agent-orchestra rollout status deployment/agent-api --timeout=120s
-kubectl -n agent-orchestra rollout status deployment/agent-ui --timeout=120s
+kubectl -n open-agent-orchestra rollout status deployment/redis --timeout=60s
+kubectl -n open-agent-orchestra rollout status statefulset/postgres --timeout=120s
+kubectl -n open-agent-orchestra rollout status deployment/oao-api --timeout=120s
+kubectl -n open-agent-orchestra rollout status deployment/oao-ui --timeout=120s
 ```
 
-### 5. Push Database Schema
+> **Note:** Database schema is pushed automatically via a Helm `post-install`/`post-upgrade` hook Job.
+> The hook waits for PostgreSQL to be ready, then runs `drizzle-kit push`. No manual step needed.
+
+### 5. Set Up Port Forwards
 
 ```bash
-# Port-forward PostgreSQL
-kubectl -n agent-orchestra port-forward pod/postgres-0 15432:5432 &
-
-# Push schema
-AGENT_DATABASE_URL="postgresql://ai_trader:change-me-in-production@localhost:15432/agent_db" \
-  npx drizzle-kit push
+kubectl -n open-agent-orchestra port-forward svc/oao-ui 3002:3002 &
+kubectl -n open-agent-orchestra port-forward svc/oao-api 4002:4002 &
 ```
 
-### 6. Set Up Port Forwards
-
-```bash
-kubectl -n agent-orchestra port-forward svc/agent-ui 3002:3002 &
-kubectl -n agent-orchestra port-forward svc/agent-api 4002:4002 &
-```
-
-### 7. Access the Platform
+### 6. Access the Platform
 
 | Service | URL |
 |---|---|
@@ -144,13 +136,13 @@ graph TB
 # Update image tags in my-values.yaml
 
 # Redeploy
-helm upgrade --install oao-platform helm/agent-platform \
+helm upgrade --install oao-platform helm/oao-platform \
   -f my-values.yaml \
   --namespace agent-orchestra
 
 # Push schema if changed
-kubectl -n agent-orchestra port-forward pod/postgres-0 15432:5432 &
-AGENT_DATABASE_URL="postgresql://ai_trader:change-me-in-production@localhost:15432/agent_db" \
+kubectl -n open-agent-orchestra port-forward pod/postgres-0 15432:5432 &
+AGENT_DATABASE_URL="postgresql://oao:change-me-in-production@localhost:15432/agent_db" \
   npx drizzle-kit push
 ```
 
@@ -158,16 +150,16 @@ AGENT_DATABASE_URL="postgresql://ai_trader:change-me-in-production@localhost:154
 
 ```bash
 # Pod status
-kubectl -n agent-orchestra get pods
+kubectl -n open-agent-orchestra get pods
 
 # OAO-API logs
-kubectl -n agent-orchestra logs -f deployment/agent-api
+kubectl -n open-agent-orchestra logs -f deployment/oao-api
 
 # Scheduler logs
-kubectl -n agent-orchestra logs -f deployment/scheduler
+kubectl -n open-agent-orchestra logs -f deployment/scheduler
 
 # Uninstall
-helm uninstall oao-platform -n agent-orchestra
+helm uninstall oao-platform -n open-agent-orchestra
 ```
 
 ## Next Steps

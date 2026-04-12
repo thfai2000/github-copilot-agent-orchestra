@@ -5,7 +5,7 @@ Understanding the OAO monorepo layout and how the pieces fit together.
 ## Top-Level Structure
 
 ```
-github-copilot-agent-orchestra/
+open-agent-orchestra/
 ├── build.sh              # Build Docker images locally
 ├── deploy.sh             # Deploy to local K8s via Helm
 ├── publish.sh            # Publish images + Helm chart to Docker Hub
@@ -17,12 +17,12 @@ github-copilot-agent-orchestra/
 │
 ├── packages/             # npm workspaces
 │   ├── shared/           # Shared library (auth, utils, middleware)
-│   ├── agent-api/        # OAO-API — REST API + workflow engine
-│   ├── agent-ui/         # OAO-UI — Nuxt 3 dashboard
+│   ├── oao-api/        # OAO-API — REST API + workflow engine
+│   ├── oao-ui/         # OAO-UI — Nuxt 3 dashboard
 │   └── ui-base/          # Shared Nuxt layer (Tailwind, auth)
 │
 ├── helm/                 # Kubernetes deployment
-│   └── agent-platform/   # Helm chart for the full platform
+│   └── oao-platform/   # Helm chart for the full platform
 │
 ├── docs/                 # VitePress documentation site
 │   └── .vitepress/       # VitePress configuration
@@ -32,7 +32,7 @@ github-copilot-agent-orchestra/
 
 ## Packages
 
-### `packages/shared/` — `@ai-trader/shared`
+### `packages/shared/` — `@oao/shared`
 
 Shared utilities used by all other packages.
 
@@ -53,12 +53,12 @@ shared/
 
 **Key exports**: `createApp`, `authMiddleware`, `encrypt`, `decrypt`, `createLogger`, `uuidSchema`, `emailSchema`, `passwordSchema`
 
-### `packages/agent-api/` — `@ai-trader/agent-api`
+### `packages/oao-api/` — `@oao/oao-api`
 
 The core backend: REST API, workflow engine, Copilot sessions, job workers.
 
 ```
-agent-api/
+oao-api/
 ├── src/
 │   ├── server.ts         # Hono app setup, route mounting, serve()
 │   ├── database/
@@ -102,12 +102,12 @@ agent-api/
 - **`workflow-engine.ts`** — The heart of the system. Handles execution flow, Copilot sessions, credential resolution, tool merging.
 - **`agent-tools.ts`** — Defines the 9 built-in tools available to agents.
 
-### `packages/agent-ui/` — `@ai-trader/agent-ui`
+### `packages/oao-ui/` — `@oao/oao-ui`
 
 Nuxt 3 frontend for managing the platform.
 
 ```
-agent-ui/
+oao-ui/
 ├── app.vue               # Root Vue component
 ├── nuxt.config.ts        # Nuxt configuration
 ├── pages/
@@ -139,7 +139,7 @@ agent-ui/
     └── api/              # Nuxt server routes (proxy)
 ```
 
-### `packages/ui-base/` — `@ai-trader/ui-base`
+### `packages/ui-base/` — `@oao/ui-base`
 
 Shared Nuxt layer for Tailwind config, auth composables, and route guards.
 
@@ -147,7 +147,7 @@ Shared Nuxt layer for Tailwind config, auth composables, and route guards.
 
 ```
 helm/
-└── agent-platform/
+└── oao-platform/
     ├── Chart.yaml        # Chart metadata (name: oao-platform)
     ├── values.yaml       # Deployment configuration
     ├── values.yaml.template  # Template for values.yaml

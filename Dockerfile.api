@@ -3,14 +3,15 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install root workspace + shared + agent-api deps
+# Install root workspace + shared + oao-api deps
 COPY package.json package-lock.json* ./
 COPY packages/shared/package.json packages/shared/
-COPY packages/agent-api/package.json packages/agent-api/
-RUN npm ci --ignore-scripts --workspace=packages/shared --workspace=packages/agent-api
+COPY packages/oao-api/package.json packages/oao-api/
+# Remove lockfile to ensure platform-specific native bindings (esbuild) resolve for Alpine
+RUN rm -f package-lock.json && npm install --workspace=packages/shared --workspace=packages/oao-api
 
 COPY packages/shared packages/shared
-COPY packages/agent-api packages/agent-api
+COPY packages/oao-api packages/oao-api
 
 # ── Production Stage ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
@@ -21,7 +22,7 @@ RUN addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /app/node_modules node_modules
 COPY --from=builder /app/packages/shared packages/shared
-COPY --from=builder /app/packages/agent-api packages/agent-api
+COPY --from=builder /app/packages/oao-api packages/oao-api
 COPY --from=builder /app/package.json .
 
 ENV NODE_ENV=production
@@ -31,4 +32,4 @@ EXPOSE 4002
 USER app
 
 # Runs the Agent API server (HTTP + BullMQ worker + scheduler in one process)
-CMD ["node", "--import", "tsx", "packages/agent-api/src/server.ts"]
+CMD ["node", "--import", "tsx", "packages/oao-api/src/server.ts"]

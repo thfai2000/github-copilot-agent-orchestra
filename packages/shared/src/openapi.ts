@@ -9,7 +9,7 @@ export function registerOpenAPI(app: Hono, spec: object): void {
 export const agentApiSpec = {
   openapi: '3.0.3',
   info: {
-    title: 'Agent Orchestration API',
+    title: 'OAO API',
     version: '4.0.0',
     description:
       'Autonomous AI agent workflow engine — agents, workflows, executions, triggers, and webhooks.',

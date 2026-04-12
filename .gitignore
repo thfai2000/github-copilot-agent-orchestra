@@ -11,7 +11,7 @@ dist/
 .secret/
 
 # Helm values with real secrets (.gitignored, use .template files)
-helm/agent-platform/values.yaml
+helm/oao-platform/values.yaml
 
 # Package-level build artifacts
 packages/*/dist/

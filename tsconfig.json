@@ -12,7 +12,7 @@
   },
   "references": [
     { "path": "./packages/shared" },
-    { "path": "./packages/agent-api" }
+    { "path": "./packages/oao-api" }
   ],
   "exclude": ["node_modules", "packages"]
 }

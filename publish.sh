@@ -20,6 +20,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ─── Load .env if present ────────────────────────────────────────────────────
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+  set -a
+  source "${SCRIPT_DIR}/.env"
+  set +a
+fi
+
 # ─── Validate required inputs ────────────────────────────────────────────────
 
 if [ -z "${DOCKER_USERNAME:-}" ]; then
@@ -111,7 +118,7 @@ if [ "${SKIP_HELM:-}" != "true" ]; then
   echo ""
   echo "▸ [4/4] Packaging and pushing Helm chart..."
 
-  CHART_DIR="${SCRIPT_DIR}/helm/agent-platform"
+  CHART_DIR="${SCRIPT_DIR}/helm/oao-platform"
 
   # Update Chart.yaml version to match BUILD_TAG (strip 'v' prefix)
   CHART_VERSION="${TAG#v}"
