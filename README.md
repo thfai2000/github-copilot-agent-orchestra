@@ -33,7 +33,7 @@ Agents are defined as Git-hosted markdown files with skills. The platform clones
                     │  ┌────────┐ │     ┌─────────────────┐
                     │  │BullMQ  │─┤     │  MCP Servers    │
                     │  │Workers │ │────▶│  (stdio, any)   │
-                    │  └────────┘ │     │  user-installed |  │             |     |                 |
+                    │  └────────┘ │     │  user-installed |
                     └──────┬──────┘     └─────────────────┘
                            │
               ┌────────────┼───────────┐
