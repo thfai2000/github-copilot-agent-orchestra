@@ -29,7 +29,9 @@ jobs:
         uses: azure/setup-helm@v4
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install
 
       # ── Build VitePress docs ───────────────────────────────────────
       - name: Build VitePress docs

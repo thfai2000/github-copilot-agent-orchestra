@@ -2,7 +2,9 @@
 
 All routes are served by OAO-API (Hono v4.6) at port 4002. OAO-UI proxies all `/api/*` requests to the API.
 
-**Authentication**: JWT tokens signed with HS256, 7-day expiry. Include in headers: `Authorization: Bearer <token>`
+**Authentication**: JWT tokens signed with HS256, 7-day expiry, or Personal Access Tokens (PAT). Include in headers: `Authorization: Bearer <token>`
+
+PATs use `oao_` prefix (e.g., `Authorization: Bearer oao_abc123...`). PATs have fine-grained scopes controlling access.
 
 ## Authentication
 
@@ -135,11 +137,20 @@ Requires `super_admin` role.
 | DELETE | `/api/workspaces/:id` | Delete (non-default, 0 members only) |
 | PUT | `/api/workspaces/:id/members/:userId` | Move user + set role |
 
+## Personal Access Tokens
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/tokens/scopes` | JWT | List available PAT scopes |
+| POST | `/api/tokens` | JWT | Create PAT (returns raw token once) |
+| GET | `/api/tokens` | JWT | List user's PATs |
+| DELETE | `/api/tokens/:id` | JWT | Revoke PAT |
+
 ## Webhooks
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/api/webhooks/:path` | HMAC-SHA256 | Receive webhook events |
+| POST | `/api/webhooks/:path` | HMAC-SHA256 or PAT (`webhook:trigger`) | Receive webhook events |
 
 ## Supervisor
 

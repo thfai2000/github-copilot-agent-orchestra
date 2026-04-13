@@ -4,6 +4,7 @@ import {
   createLogger,
   agentEventBus,
   agentApiSpec,
+  registerPatValidator,
 } from '@oao/shared';
 import agentsRouter from './routes/agents.js';
 import authRouter from './routes/auth.js';
@@ -20,9 +21,13 @@ import quotaRouter from './routes/quota.js';
 import workspacesRouter from './routes/workspaces.js';
 import eventsRouter from './routes/events.js';
 import agentFilesRouter from './routes/agent-files.js';
+import tokensRouter, { validatePat } from './routes/tokens.js';
 
 const logger = createLogger('oao-api');
 const port = Number(process.env.AGENT_API_PORT) || 4002;
+
+// Register PAT validator so the shared auth middleware can validate oao_* tokens
+registerPatValidator(validatePat);
 
 const app = createApp({
   serviceName: 'oao-api',
@@ -48,6 +53,7 @@ const app = createApp({
     ['/api/workspaces', workspacesRouter],
     ['/api/events', eventsRouter],
     ['/api/agent-files', agentFilesRouter],
+    ['/api/tokens', tokensRouter],
   ],
 });
 

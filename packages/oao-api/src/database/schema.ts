@@ -551,3 +551,30 @@ export const systemEvents = pgTable(
     systemEventsCreatedIdx: index('system_events_created_idx').on(table.createdAt),
   }),
 );
+
+// ─── Personal Access Tokens (PAT) ───────────────────────────────────
+
+export const personalAccessTokens = pgTable(
+  'personal_access_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 100 }).notNull(), // user-friendly label
+    tokenHash: varchar('token_hash', { length: 128 }).notNull().unique(), // SHA-256 of the raw token
+    tokenPrefix: varchar('token_prefix', { length: 12 }).notNull(), // first 8 chars for display (oao_xxxx…)
+    scopes: jsonb('scopes').notNull().default([]), // fine-grained scopes e.g. ['webhook:trigger', 'api:read', 'api:write']
+    expiresAt: timestamp('expires_at', { withTimezone: true }), // null = no expiry
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    isRevoked: boolean('is_revoked').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    patUserIdx: index('pat_user_idx').on(table.userId),
+    patTokenHashIdx: uniqueIndex('pat_token_hash_idx').on(table.tokenHash),
+  }),
+);

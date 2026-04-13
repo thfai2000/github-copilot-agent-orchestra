@@ -18,6 +18,7 @@ erDiagram
     users ||--o{ workflows : "creates"
     users ||--o{ user_variables : "has variables"
     users ||--o{ credit_usage : "tracks usage"
+    users ||--o{ personal_access_tokens : "has PATs"
 
     agents ||--o{ agent_variables : "has variables"
     agents ||--o{ mcp_server_configs : "has MCP configs"
@@ -421,3 +422,38 @@ All variable tables share the same structure: `key` (UPPER_SNAKE_CASE), `valueEn
 - **Foreign keys** — Cascade deletes for referential integrity
 - **Unique indexes** — Prevent duplicate variable keys per scope
 - **Zero credential exposure** — Agents never access credentials directly. Credentials are injected via Jinja2 templates into MCP configs and HTTP headers. See [AI Security](/concepts/security)
+- **Personal Access Tokens** — SHA-256 hashed, fine-grained scopes, optional expiry
+
+## Auth & Token Tables
+
+### personal_access_tokens
+
+Fine-grained PATs for webhook triggers and API access.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| userId | UUID FK → users | Cascade delete |
+| workspaceId | UUID FK → workspaces | Cascade delete |
+| name | varchar(100) | User-friendly label |
+| tokenHash | varchar(128) | SHA-256 hash (UNIQUE) |
+| tokenPrefix | varchar(12) | First 8 chars for display (`oao_xxxx`) |
+| scopes | jsonb | Array of granted scopes |
+| expiresAt | timestamp | Null = no expiry |
+| lastUsedAt | timestamp | Updated on each use |
+| isRevoked | boolean | Default: false |
+| createdAt | timestamp | |
+
+**Available Scopes:**
+
+| Scope | Description |
+|---|---|
+| `webhook:trigger` | Trigger webhook-type workflow triggers |
+| `api:read` | Read-only API access (GET endpoints) |
+| `api:write` | Write API access (POST/PUT/DELETE) |
+| `api:agents` | Manage agents |
+| `api:workflows` | Manage workflows |
+| `api:executions` | View/manage executions |
+| `api:variables` | Read/write variables |
+| `api:triggers` | Manage triggers |
+| `api:admin` | Admin operations |

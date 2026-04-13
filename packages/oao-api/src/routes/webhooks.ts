@@ -5,6 +5,7 @@ import { db } from '../database/index.js';
 import { webhookRegistrations, triggers } from '../database/schema.js';
 import { decrypt, createLogger } from '@oao/shared';
 import { enqueueWorkflowExecution } from '../services/workflow-engine.js';
+import { validatePat } from './tokens.js';
 
 const logger = createLogger('agent-webhooks');
 const webhooks = new Hono();
@@ -19,20 +20,42 @@ setInterval(() => {
 }, 60_000);
 
 // POST /:registrationId — receive webhook event
+// Supports two auth methods:
+//   1. HMAC signature (X-Signature + X-Timestamp headers)
+//   2. PAT with 'webhook:trigger' scope (Authorization: Bearer oao_...)
 webhooks.post('/:registrationId', async (c) => {
   const registrationId = c.req.param('registrationId');
   const signature = c.req.header('X-Signature');
   const timestamp = c.req.header('X-Timestamp');
   const eventId = c.req.header('X-Event-Id');
+  const authHeader = c.req.header('Authorization');
 
-  if (!signature || !timestamp) {
-    return c.json({ error: 'Missing signature or timestamp' }, 401);
+  // ── Auth method 1: PAT with webhook:trigger scope ──
+  const patToken = authHeader?.startsWith('Bearer oao_') ? authHeader.slice(7) : null;
+  let authedViaPat = false;
+
+  if (patToken) {
+    const patUser = await validatePat(patToken);
+    if (!patUser) {
+      return c.json({ error: 'Invalid, expired, or revoked token' }, 401);
+    }
+    if (!patUser.scopes.includes('webhook:trigger')) {
+      return c.json({ error: 'Token missing webhook:trigger scope' }, 403);
+    }
+    authedViaPat = true;
   }
 
-  // Replay protection: 5-minute window
-  const ts = parseInt(timestamp, 10);
-  if (isNaN(ts) || Math.abs(Date.now() - ts * 1000) > 5 * 60 * 1000) {
-    return c.json({ error: 'Timestamp out of range' }, 401);
+  // ── Auth method 2: HMAC signature ──
+  if (!authedViaPat) {
+    if (!signature || !timestamp) {
+      return c.json({ error: 'Missing signature or timestamp' }, 401);
+    }
+
+    // Replay protection: 5-minute window
+    const ts = parseInt(timestamp, 10);
+    if (isNaN(ts) || Math.abs(Date.now() - ts * 1000) > 5 * 60 * 1000) {
+      return c.json({ error: 'Timestamp out of range' }, 401);
+    }
   }
 
   // Event ID dedup
@@ -48,13 +71,15 @@ webhooks.post('/:registrationId', async (c) => {
     return c.json({ error: 'Registration not found' }, 404);
   }
 
-  // Verify HMAC signature
+  // Verify HMAC signature (only when not authed via PAT)
   const body = await c.req.text();
-  const secret = decrypt(registration.hmacSecretEncrypted);
-  const expectedSig = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  if (!authedViaPat) {
+    const secret = decrypt(registration.hmacSecretEncrypted);
+    const expectedSig = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
 
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
-    return c.json({ error: 'Invalid signature' }, 401);
+    if (!timingSafeEqual(Buffer.from(signature!), Buffer.from(expectedSig))) {
+      return c.json({ error: 'Invalid signature' }, 401);
+    }
   }
 
   // Mark event as processed
@@ -80,11 +105,12 @@ webhooks.post('/:registrationId', async (c) => {
       try { payload = body ? JSON.parse(body) : {}; } catch { /* non-JSON body */ }
       await enqueueWorkflowExecution(trigger.workflowId, trigger.id, {
         type: 'webhook',
+        authMethod: authedViaPat ? 'pat' : 'hmac',
         eventId,
         payload,
         receivedAt: new Date().toISOString(),
       });
-      logger.info({ registrationId, triggerId: trigger.id }, 'Webhook triggered workflow');
+      logger.info({ registrationId, triggerId: trigger.id, authMethod: authedViaPat ? 'pat' : 'hmac' }, 'Webhook triggered workflow');
     }
   }
 

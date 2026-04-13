@@ -4,20 +4,23 @@ import { generateEmbedding, cosineSimilarity } from '../src/services/embedding-s
 describe('embedding-service', () => {
   describe('generateEmbedding (hash fallback)', () => {
     it('returns a 1536-dimension vector', async () => {
-      // No OPENAI_API_KEY set, so hash fallback is used
+      // Force hash provider for predictable test behavior
       delete process.env.OPENAI_API_KEY;
+      process.env.EMBEDDING_PROVIDER = 'hash';
       const embedding = await generateEmbedding('hello world');
       expect(embedding).toHaveLength(1536);
     });
 
     it('returns numbers in the vector', async () => {
       delete process.env.OPENAI_API_KEY;
+      process.env.EMBEDDING_PROVIDER = 'hash';
       const embedding = await generateEmbedding('test text');
       expect(embedding.every((v) => typeof v === 'number')).toBe(true);
     });
 
     it('produces a normalized vector (L2 norm ~= 1)', async () => {
       delete process.env.OPENAI_API_KEY;
+      process.env.EMBEDDING_PROVIDER = 'hash';
       const embedding = await generateEmbedding('some words here');
       const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
       expect(norm).toBeCloseTo(1.0, 5);
@@ -25,6 +28,7 @@ describe('embedding-service', () => {
 
     it('produces deterministic output for the same input', async () => {
       delete process.env.OPENAI_API_KEY;
+      process.env.EMBEDDING_PROVIDER = 'hash';
       const a = await generateEmbedding('deterministic check');
       const b = await generateEmbedding('deterministic check');
       expect(a).toEqual(b);
@@ -32,6 +36,7 @@ describe('embedding-service', () => {
 
     it('produces different vectors for different inputs', async () => {
       delete process.env.OPENAI_API_KEY;
+      process.env.EMBEDDING_PROVIDER = 'hash';
       const a = await generateEmbedding('hello world');
       const b = await generateEmbedding('goodbye universe');
       // They should not be identical
@@ -40,6 +45,7 @@ describe('embedding-service', () => {
 
     it('handles empty string', async () => {
       delete process.env.OPENAI_API_KEY;
+      process.env.EMBEDDING_PROVIDER = 'hash';
       const embedding = await generateEmbedding('');
       expect(embedding).toHaveLength(1536);
       // All zeros for empty input but still length 1536
@@ -48,6 +54,7 @@ describe('embedding-service', () => {
 
     it('handles special characters by normalizing', async () => {
       delete process.env.OPENAI_API_KEY;
+      process.env.EMBEDDING_PROVIDER = 'hash';
       const embedding = await generateEmbedding('hello! @#$ world');
       expect(embedding).toHaveLength(1536);
       const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
