@@ -230,6 +230,9 @@ variablesRouter.put('/:id', async (c) => {
     if (user.role !== 'workspace_admin' && user.role !== 'super_admin') {
       return c.json({ error: 'Workspace admin access required' }, 403);
     }
+    // Verify the workspace variable belongs to the user's workspace
+    const existing = await db.query.workspaceVariables.findFirst({ where: eq(workspaceVariables.id, id) });
+    if (!existing || existing.workspaceId !== user.workspaceId) return c.json({ error: 'Variable not found' }, 404);
     const [updated] = await db
       .update(workspaceVariables)
       .set(updateData)
@@ -247,6 +250,9 @@ variablesRouter.put('/:id', async (c) => {
   }
 
   if (body.scope === 'user') {
+    // Verify the user variable belongs to the requesting user
+    const existing = await db.query.userVariables.findFirst({ where: eq(userVariables.id, id) });
+    if (!existing || existing.userId !== user.userId) return c.json({ error: 'Variable not found' }, 404);
     const [updated] = await db
       .update(userVariables)
       .set(updateData)
@@ -262,6 +268,12 @@ variablesRouter.put('/:id', async (c) => {
     if (!updated) return c.json({ error: 'Variable not found' }, 404);
     return c.json({ variable: updated });
   }
+
+  // Verify agent variable belongs to an agent in user's workspace
+  const existingAgentVar = await db.query.agentVariables.findFirst({ where: eq(agentVariables.id, id) });
+  if (!existingAgentVar) return c.json({ error: 'Variable not found' }, 404);
+  const agentForVar = await db.query.agents.findFirst({ where: eq(agents.id, existingAgentVar.agentId) });
+  if (!agentForVar || agentForVar.workspaceId !== user.workspaceId) return c.json({ error: 'Variable not found' }, 404);
 
   const [updated] = await db
     .update(agentVariables)

@@ -40,7 +40,7 @@ graph TB
     end
 
     WHEP -->|"insert webhook.received"| EVENTS
-    RUNEP -->|"enqueue directly"| QUEUE
+    RUNEP -->|"insert webhook.received"| EVENTS
     EVAPI -->|"insert system events"| EVENTS
 
     POLL -->|"reads due triggers"| TRIGGERS
@@ -168,25 +168,32 @@ sequenceDiagram
     AP->>DB: Execute step + write results
 ```
 
-### Manual Run Flow (Direct Enqueue)
+### Manual Run Flow (Event-Based)
 
-Manual Run from the UI bypasses the event system entirely — the API enqueues the execution directly:
+Manual Run from the UI goes through the event system — the API inserts a `webhook.received` event, and the Controller picks it up in the next poll cycle:
 
 ```mermaid
 sequenceDiagram
     participant User as Browser
     participant API as OAO-API
+    participant DB as system_events
+    participant Ctrl as Controller (Leader)
     participant Q as BullMQ
+    participant W as Worker
+    participant AP as Agent Instance
 
     User->>API: POST /api/workflows/:id/run {inputs}
     API->>API: Validate inputs against webhook params
-    API->>Q: Enqueue workflow execution directly
+    API->>DB: Insert webhook.received event
     API-->>User: 202 Accepted
 
-    loop UI polls every 3s
-        User->>API: GET /api/executions/active?workflowId=...
-        API-->>User: Active executions (pending/running)
-    end
+    Note over Ctrl: Next poll cycle (≤30s)
+    Ctrl->>DB: Query new system_events
+    Ctrl->>Ctrl: Match webhook.received → extract trigger/workflow
+    Ctrl->>Q: Enqueue workflow execution
+    Q->>W: Dequeue job
+    W->>AP: Dispatch step to agent worker
+    AP->>DB: Execute step + write results
 ```
 
 The UI polls `GET /api/executions/active` to:

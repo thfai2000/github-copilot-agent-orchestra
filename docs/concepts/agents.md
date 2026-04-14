@@ -132,23 +132,23 @@ Agents can connect to [Model Context Protocol (MCP)](https://modelcontextprotoco
 
 ```mermaid
 sequenceDiagram
-    participant Engine as Workflow Engine
+    participant Session as Copilot Session
     participant MCP as MCP Client
     participant Server as MCP Server Process
 
-    Engine->>MCP: Connect to MCP server
+    Session->>MCP: Connect to MCP server
     MCP->>Server: Spawn child process (stdio)
     Server-->>MCP: List available tools
-    MCP-->>Engine: Register tools in session
+    MCP-->>Session: Register tools in session
 
-    Note over Engine,Server: During execution...
-    Engine->>MCP: Agent calls MCP tool
+    Note over Session,Server: During execution...
+    Session->>MCP: Agent calls MCP tool
     MCP->>Server: Forward tool call
     Server-->>MCP: Tool result
-    MCP-->>Engine: Return to agent
+    MCP-->>Session: Return to agent
 
-    Note over Engine,Server: After execution...
-    Engine->>MCP: Cleanup
+    Note over Session,Server: After execution...
+    Session->>MCP: Cleanup
     MCP->>Server: Kill child process
 ```
 

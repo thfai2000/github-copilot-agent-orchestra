@@ -554,6 +554,17 @@ async function markStepAndExecutionFailed(
  * 4. Run the prompt and capture output
  * 5. Track token usage for quota enforcement
  */
+/** A single intermediate event emitted during a Copilot session. */
+export interface LiveOutputEvent {
+  type: 'tool_call_start' | 'tool_call_end' | 'message_delta' | 'turn_start' | 'turn_end' | 'info';
+  timestamp: string;
+  tool?: string;
+  args?: unknown;
+  result?: unknown;
+  content?: string;
+  message?: string;
+}
+
 export async function executeCopilotSession(params: {
   agent: typeof agents.$inferSelect;
   step: typeof workflowSteps.$inferSelect;
@@ -569,8 +580,9 @@ export async function executeCopilotSession(params: {
   userId: string;
   workflowDefaultModel?: string | null;
   workflowDefaultReasoningEffort?: string | null;
+  onProgress?: (events: LiveOutputEvent[]) => void | Promise<void>;
 }): Promise<{ output: string; reasoningTrace: Record<string, unknown> }> {
-  const { agent, step, resolvedPrompt: rawPrompt, precedentOutput, credentials, properties, envVariables, inputs, workflowId, workspaceId, executionId, userId, workflowDefaultModel, workflowDefaultReasoningEffort } = params;
+  const { agent, step, resolvedPrompt: rawPrompt, precedentOutput, credentials, properties, envVariables, inputs, workflowId, workspaceId, executionId, userId, workflowDefaultModel, workflowDefaultReasoningEffort, onProgress } = params;
 
   // Render prompt template using Jinja2 (nunjucks) with full variable context
   const templateContext = buildTemplateContext({
@@ -828,9 +840,47 @@ export async function executeCopilotSession(params: {
 
     const session = await client.createSession(sessionOptions as unknown as Parameters<typeof client.createSession>[0]);
 
-    // 5. Track tool calls for reasoning trace
+    // 5. Track tool calls for reasoning trace AND live output events
+    const liveEvents: LiveOutputEvent[] = [];
+    let progressFlushTimer: ReturnType<typeof setInterval> | null = null;
+    let lastFlushedLength = 0;
+
+    const pushLiveEvent = (event: LiveOutputEvent) => {
+      liveEvents.push(event);
+    };
+
+    // Flush live events to the onProgress callback periodically (every 2s)
+    if (onProgress) {
+      // Send initial "session started" event
+      pushLiveEvent({ type: 'info', timestamp: new Date().toISOString(), message: `Copilot session started (model: ${model})` });
+      progressFlushTimer = setInterval(async () => {
+        if (liveEvents.length > lastFlushedLength) {
+          lastFlushedLength = liveEvents.length;
+          try { await onProgress([...liveEvents]); } catch { /* ignore flush errors */ }
+        }
+      }, 2000);
+    }
+
     session.on('tool.execution_start', (event) => {
-      toolCalls.push({ tool: event.data?.toolName ?? 'unknown', args: event.data?.arguments });
+      const toolName = event.data?.toolName ?? 'unknown';
+      toolCalls.push({ tool: toolName, args: event.data?.arguments });
+      pushLiveEvent({ type: 'tool_call_start', timestamp: new Date().toISOString(), tool: toolName, args: event.data?.arguments });
+    });
+
+    session.on('tool.execution_complete', (event) => {
+      pushLiveEvent({ type: 'tool_call_end', timestamp: new Date().toISOString(), tool: event.data?.toolCallId ?? 'unknown', result: event.data?.success });
+    });
+
+    session.on('assistant.message_delta', (event) => {
+      pushLiveEvent({ type: 'message_delta', timestamp: new Date().toISOString(), content: event.data?.deltaContent ?? '' });
+    });
+
+    session.on('assistant.turn_start', () => {
+      pushLiveEvent({ type: 'turn_start', timestamp: new Date().toISOString() });
+    });
+
+    session.on('assistant.turn_end', () => {
+      pushLiveEvent({ type: 'turn_end', timestamp: new Date().toISOString() });
     });
 
     // 6. Send prompt and wait for response
@@ -838,6 +888,12 @@ export async function executeCopilotSession(params: {
     const response = await session.sendAndWait({ prompt: resolvedPrompt }, timeoutMs);
 
     const output = response?.data?.content ?? '[No response from Copilot session]';
+
+    // Final flush of live events
+    if (progressFlushTimer) clearInterval(progressFlushTimer);
+    if (onProgress && liveEvents.length > lastFlushedLength) {
+      try { await onProgress([...liveEvents]); } catch { /* ignore */ }
+    }
 
     // 7. Clean up session
     await session.disconnect();

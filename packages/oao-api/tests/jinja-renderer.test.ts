@@ -23,20 +23,6 @@ describe('renderTemplate', () => {
     expect(result).toBe('Value: []');
   });
 
-  it('handles backward-compat <PRECEDENT_OUTPUT> placeholder', () => {
-    const result = renderTemplate('Previous: <PRECEDENT_OUTPUT>', {
-      precedent_output: 'step-1-result',
-    });
-    expect(result).toBe('Previous: step-1-result');
-  });
-
-  it('handles backward-compat {{ Properties.KEY }} placeholder', () => {
-    const result = renderTemplate('Symbol: {{ Properties.SYMBOL }}', {
-      properties: { SYMBOL: 'AAPL' },
-    });
-    expect(result).toBe('Symbol: AAPL');
-  });
-
   it('renders Jinja2 conditionals', () => {
     const template = '{% if active %}ON{% else %}OFF{% endif %}';
     expect(renderTemplate(template, { active: true })).toBe('ON');

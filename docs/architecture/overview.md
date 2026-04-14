@@ -80,21 +80,7 @@ graph TB
     SQ -.-> RD
 ```
 
-All trigger types — cron, datetime, webhook, and event — flow through the Controller via `system_events`. Manual Run (`POST /api/workflows/:id/run`) bypasses the event system and enqueues execution directly.
-
-## Network & IP Ranges
-
-| Component | Network Access | IP Range |
-|---|---|---|
-| OAO-API | Accepts inbound HTTP on `:4002`. Connects to PostgreSQL, Redis. | Cluster IP (fixed Service) |
-| OAO-UI | Accepts inbound HTTP on `:3002`. Proxies `/api/*` to OAO-API. | Cluster IP (fixed Service) |
-| OAO-Controller | No inbound ports. Connects to PostgreSQL, Redis, Kubernetes API (ephemeral mode). | Pod IP (no Service) |
-| Static Agent Worker | No inbound ports. Connects to PostgreSQL, Redis, GitHub Copilot API, MCP servers. | Pod IP (no Service) |
-| Ephemeral Instance | No inbound ports. Created dynamically in the same namespace. Connects to PostgreSQL, Redis, GitHub Copilot API, MCP servers. | **Dynamic Pod IPs** — allocated from the cluster pod CIDR (typically `10.244.0.0/16`). Each instance gets a unique IP that is released on termination. |
-| PostgreSQL | Accepts connections on `:5432` from API, Controller, all agent instances. | Headless Service (`postgres`) |
-| Redis | Accepts connections on `:6379` from API, Controller, all agent instances. | Cluster IP Service (`redis`) |
-
-> **Note:** Ephemeral instances are short-lived pods with no stable IP. They resolve backend services via Kubernetes DNS (`postgres.open-agent-orchestra.svc`, `redis.open-agent-orchestra.svc`). The Controller must have RBAC permission to create/delete pods in the namespace.
+All trigger types — cron, datetime, webhook, event, and Manual Run — flow through the Controller via `system_events`.
 
 ## Components
 
@@ -186,6 +172,26 @@ sequenceDiagram
     W->>K8s: Delete instance
 ```
 
+### Agent Instance Communication & Ports
+
+Agent instances (both static and ephemeral) **do not expose any inbound network ports**. All communication uses outbound connections to shared infrastructure:
+
+| Channel | Protocol | Direction | Purpose |
+|---|---|---|---|
+| **BullMQ (Redis)** | Redis `:6379` | Outbound | Receive step jobs from the `agent-step-execution` queue |
+| **PostgreSQL** | TCP `:5432` | Outbound | Read step config, write execution results, heartbeat updates |
+| **GitHub Copilot API** | HTTPS `:443` | Outbound | Create Copilot sessions, send prompts, receive responses |
+| **MCP Servers** | stdio (child process) | Local | Spawn MCP servers as subprocesses within the same container |
+
+**Status polling** does not use HTTP health endpoints. Instead:
+
+| Instance Type | Status Mechanism |
+|---|---|
+| **Static Worker** | Writes `lastHeartbeatAt` to `agent_instances` table every 15s. Marked offline if stale (>60s). The API reads this table for the Instances UI page. |
+| **Ephemeral Instance** | Controller polls the Kubernetes API (`GET /api/v1/namespaces/.../pods/{name}`) to check pod phase (`Running` → `Succeeded` / `Failed`). Pods are deleted after results are written. |
+
+> **Firewall note:** Agent instances only need **outbound** access to PostgreSQL, Redis, and `api.githubcopilot.com`. No inbound ports need to be opened.
+
 ### Scaling Strategy
 
 | Component | Scaling Approach | Notes |
@@ -239,7 +245,7 @@ sequenceDiagram
 
 ## Trigger Flow (Unified Event-Based)
 
-Automated trigger types follow the same pattern — the API writes a `system_event`, and the Controller picks it up. Manual Run bypasses the event system:
+All trigger types follow the same event-based pattern — the API writes a `system_event`, and the Controller picks it up:
 
 ```mermaid
 sequenceDiagram
@@ -257,7 +263,7 @@ sequenceDiagram
         API-->>Src: 202 Accepted
     else Manual Run (UI)
         Src->>API: POST /api/workflows/:id/run
-        API->>Q: Enqueue workflow-execution directly
+        API->>DB: Insert webhook.received event
         API-->>Src: 202 Accepted
     else Cron / Datetime
         Note over Ctrl: Poll triggers table directly

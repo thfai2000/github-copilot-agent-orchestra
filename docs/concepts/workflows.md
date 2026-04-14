@@ -61,8 +61,6 @@ Prompt templates use **Jinja2 templating** (powered by Nunjucks). Available vari
 
 For the full template variable reference, see [Template Variables](/reference/template-variables).
 
-**Backward compatibility:** The legacy `<PRECEDENT_OUTPUT>` and <span v-pre>`{{ Properties.KEY }}`</span> syntax is automatically converted to the new Jinja2 format.
-
 You can use any Jinja2 features: conditionals, loops, filters, etc.
 
 ```markdown
@@ -104,6 +102,31 @@ Write a brief market commentary blog post based on the following trade decisions
 Write in a professional but approachable tone.
 ```
 
+## What Happens on the Agent
+
+When a step is dispatched to an agent worker, the following pipeline runs inside the agent instance:
+
+```mermaid
+graph TB
+    START[Agent Worker picks up step] --> VARS[Load & merge variables<br/>workspace → user → agent]
+    VARS --> WORKSPACE[Prepare agent workspace<br/>Git clone or DB file read]
+    WORKSPACE --> AGENT[Load agent markdown<br/>personality + instructions]
+    AGENT --> SKILLS[Load skill files<br/>explicit paths or directory scan]
+    SKILLS --> RENDER[Render Jinja2 prompt template<br/>with variables, inputs, precedent_output]
+    RENDER --> MCP[Spawn MCP servers<br/>DB configs + JSON template]
+    MCP --> TOOLS[Load tools<br/>built-in + MCP + plugin]
+    TOOLS --> SESSION[Create Copilot Session<br/>system message + tools + model]
+    SESSION --> EXEC[Send prompt & wait for response]
+    EXEC --> WRITE[Write output + reasoning trace]
+    WRITE --> CLEANUP[Cleanup<br/>MCP processes, workspace, lock]
+
+    style START fill:#FF9800,color:#fff
+    style SESSION fill:#9C27B0,color:#fff
+    style WRITE fill:#4CAF50,color:#fff
+```
+
+For full details on each phase, see [Agent Steps](/concepts/agent-steps).
+
 ## Triggers
 
 Triggers define **when** a workflow executes. Workflows can also be run manually from the UI when a webhook trigger is configured.
@@ -123,7 +146,7 @@ The **Manual Run** button in the UI allows authenticated users to trigger a work
 
 When clicked, the UI shows input fields based on the webhook trigger's **parameter definitions**. Required parameters must be filled in before the run starts. The inputs are available in prompt templates as <span v-pre>`{{ inputs.PARAM_NAME }}`</span>.
 
-Manual Run calls `POST /api/workflows/:id/run` directly — it does not go through the webhook endpoint or event system.
+Manual Run calls `POST /api/workflows/:id/run`, which inserts a `webhook.received` event into the event system. The Controller picks it up in the next poll cycle and enqueues the execution.
 
 ### Webhook Parameters
 
@@ -162,19 +185,7 @@ graph LR
     ET --> WF[Workflow Execution]
 ```
 
-**Available system events (22):**
-
-| Category | Events |
-|---|---|
-| Agent | `agent.created`, `agent.updated`, `agent.deleted`, `agent.status_changed` |
-| Workflow | `workflow.created`, `workflow.updated`, `workflow.deleted` |
-| Execution | `execution.started`, `execution.completed`, `execution.failed`, `execution.cancelled` |
-| Step | `step.completed`, `step.failed` |
-| Trigger | `trigger.fired` |
-| Webhook | `webhook.received` |
-| User | `user.login`, `user.registered` |
-| Variable | `variable.created`, `variable.updated`, `variable.deleted` |
-| Credential | `credential.access_requested`, `credential.access_approved`, `credential.access_denied` |
+For the full list of system events, see the [Events Reference](/reference/events).
 
 **Event data conditions** — filter by matching key-value pairs (e.g., `scope = workspace`, `agentName = "MyAgent"`).
 

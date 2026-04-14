@@ -13,6 +13,9 @@ hero:
       text: Host on Docker
       link: /guide/docker
     - theme: alt
+      text: Host on Kubernetes
+      link: /guide/kubernetes
+    - theme: alt
       text: GitHub
       link: https://github.com/thfai2000/open-agent-orchestra
 

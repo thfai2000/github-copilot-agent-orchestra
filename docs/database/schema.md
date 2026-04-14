@@ -235,6 +235,7 @@ Trigger configurations for workflows.
 | resolvedPrompt | text | Prompt with variables replaced |
 | output | text | Copilot session response |
 | reasoningTrace | jsonb | Tool calls, intermediate thoughts |
+| liveOutput | jsonb | Array of intermediate events streamed during execution |
 | status | step_status | |
 | startedAt, completedAt | timestamp | |
 | error | text | |

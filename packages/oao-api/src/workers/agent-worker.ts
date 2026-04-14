@@ -31,7 +31,7 @@ import {
   userVariables,
   workspaceVariables,
 } from '../database/schema.js';
-import { executeCopilotSession } from '../services/workflow-engine.js';
+import { executeCopilotSession, type LiveOutputEvent } from '../services/workflow-engine.js';
 import { getRedisConnectionOpts } from '../services/redis.js';
 import {
   registerStaticInstance,
@@ -145,7 +145,18 @@ async function executeStep(stepExecutionId: string, executionId: string): Promis
     .set({ status: 'running', resolvedPrompt: step.promptTemplate, startedAt: new Date() })
     .where(eq(stepExecutions.id, stepExecutionId));
 
-  // 9. Execute the Copilot session
+  // 9. Execute the Copilot session with live progress streaming
+  const onProgress = async (events: LiveOutputEvent[]) => {
+    try {
+      await db
+        .update(stepExecutions)
+        .set({ liveOutput: events })
+        .where(eq(stepExecutions.id, stepExecutionId));
+    } catch (err) {
+      logger.warn({ stepExecutionId, error: err }, 'Failed to flush live output to DB');
+    }
+  };
+
   const result = await executeCopilotSession({
     agent,
     step,
@@ -161,6 +172,7 @@ async function executeStep(stepExecutionId: string, executionId: string): Promis
     userId: workflow.userId,
     workflowDefaultModel: workflow.defaultModel,
     workflowDefaultReasoningEffort: workflow.defaultReasoningEffort,
+    onProgress,
   });
 
   // 10. Write success result to DB

@@ -1,12 +1,31 @@
 import { defineConfig } from 'vitepress';
 import { withMermaid } from 'vitepress-plugin-mermaid';
+import { DOC_VERSIONS } from './versions.js';
+
+// ─── Versioned docs support ─────────────────────────────────────────
+// DOCS_BASE env var overrides the base path for versioned builds.
+// DOCS_OUTDIR env var overrides the output directory.
+const SITE_BASE = '/open-agent-orchestra';
+const base = process.env.DOCS_BASE || `${SITE_BASE}/`;
+const outDir = process.env.DOCS_OUTDIR || '../docs-dist';
+
+// Determine current doc version from the base path
+const currentLabel = DOC_VERSIONS.find(v =>
+  base === `${SITE_BASE}/` ? v.latest : base === `${SITE_BASE}/${v.version}/`,
+);
+
+// Build version dropdown items (absolute paths so links work across bases)
+const versionDropdown = DOC_VERSIONS.map(v => ({
+  text: v.latest ? `${v.version} (latest)` : v.version,
+  link: v.latest ? `${SITE_BASE}/` : `${SITE_BASE}/${v.version}/`,
+}));
 
 export default withMermaid(
   defineConfig({
     title: 'Open Agent Orchestra',
     description: 'An autonomous AI workflow engine powered by the GitHub Copilot SDK. Build cost-effective AI teams with segregation of duties, secure credential management, and multi-step workflows.',
-    base: '/open-agent-orchestra/',
-    outDir: '../docs-dist',
+    base,
+    outDir,
     ignoreDeadLinks: [
       /localhost/,
     ],
@@ -22,6 +41,10 @@ export default withMermaid(
         { text: 'Concepts', link: '/concepts/agents' },
         { text: 'Architecture', link: '/architecture/overview' },
         { text: 'Reference', link: '/reference/template-variables' },
+        {
+          text: currentLabel?.version || 'Version',
+          items: versionDropdown,
+        },
       ],
       sidebar: {
         '/guide/': [
@@ -43,7 +66,7 @@ export default withMermaid(
         ],
         '/concepts/': [
           {
-            text: 'Agents',
+            text: 'Basic',
             items: [
               { text: 'Agents', link: '/concepts/agents' },
               { text: 'Variables', link: '/concepts/variables' },
@@ -86,6 +109,7 @@ export default withMermaid(
             text: 'Reference',
             items: [
               { text: 'Template Variables', link: '/reference/template-variables' },
+              { text: 'Events', link: '/reference/events' },
               { text: 'API Endpoints', link: '/reference/api-endpoints' },
             ],
           },

@@ -5,7 +5,6 @@ import { db } from '../database/index.js';
 import { workflows, workflowSteps, triggers, workflowExecutions, users, agents } from '../database/schema.js';
 import { authMiddleware, uuidSchema } from '@oao/shared';
 import { emitEvent, EVENT_NAMES } from '../services/system-events.js';
-import { enqueueWorkflowExecution } from '../services/workflow-engine.js';
 
 const workflowsRouter = new Hono();
 workflowsRouter.use('/*', authMiddleware);
@@ -437,15 +436,22 @@ workflowsRouter.post('/:id/run', async (c) => {
     Object.assign(inputs, body.inputs);
   }
 
-  // Enqueue workflow execution directly (no event system needed — user is authenticated)
-  const execution = await enqueueWorkflowExecution(workflow.id, webhookTrigger.id, {
-    type: 'manual_run',
-    userId: user.userId,
-    inputs,
-    triggeredAt: new Date().toISOString(),
+  // Emit webhook.received event — Manual Run flows through the event system like all triggers
+  await emitEvent({
+    eventScope: 'workspace',
+    scopeId: workflow.workspaceId,
+    eventName: EVENT_NAMES.WEBHOOK_RECEIVED,
+    eventData: {
+      triggerId: webhookTrigger.id,
+      workflowId: workflow.id,
+      authMethod: 'manual_run',
+      inputs,
+      receivedAt: new Date().toISOString(),
+    },
+    actorId: user.userId,
   });
 
-  return c.json({ status: 'accepted', executionId: execution.id }, 202);
+  return c.json({ status: 'accepted' }, 202);
 });
 
 export default workflowsRouter;

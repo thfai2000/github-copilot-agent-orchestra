@@ -76,6 +76,7 @@ pluginsRouter.get('/:id', async (c) => {
   });
 
   if (!plugin) return c.json({ error: 'Plugin not found' }, 404);
+  if (plugin.workspaceId !== user.workspaceId) return c.json({ error: 'Plugin not found' }, 404);
 
   const admin = user.role === 'workspace_admin' || user.role === 'super_admin';
   if (!admin && !plugin.isAllowed) return c.json({ error: 'Plugin not found' }, 404);
@@ -101,7 +102,7 @@ pluginsRouter.put('/:id', async (c) => {
   const body = updatePluginSchema.parse(await c.req.json());
 
   const existing = await db.query.plugins.findFirst({ where: eq(plugins.id, id) });
-  if (!existing) return c.json({ error: 'Plugin not found' }, 404);
+  if (!existing || existing.workspaceId !== user.workspaceId) return c.json({ error: 'Plugin not found' }, 404);
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (body.name !== undefined) updateData.name = body.name;
@@ -127,7 +128,7 @@ pluginsRouter.delete('/:id', async (c) => {
 
   const id = uuidSchema.parse(c.req.param('id'));
   const existing = await db.query.plugins.findFirst({ where: eq(plugins.id, id) });
-  if (!existing) return c.json({ error: 'Plugin not found' }, 404);
+  if (!existing || existing.workspaceId !== user.workspaceId) return c.json({ error: 'Plugin not found' }, 404);
 
   await db.delete(plugins).where(eq(plugins.id, id));
   return c.json({ success: true });
@@ -140,7 +141,7 @@ pluginsRouter.post('/:id/sync', async (c) => {
 
   const id = uuidSchema.parse(c.req.param('id'));
   const existing = await db.query.plugins.findFirst({ where: eq(plugins.id, id) });
-  if (!existing) return c.json({ error: 'Plugin not found' }, 404);
+  if (!existing || existing.workspaceId !== user.workspaceId) return c.json({ error: 'Plugin not found' }, 404);
 
   const manifest = await syncPluginManifest(id);
   return c.json({ success: true, manifest });
@@ -155,9 +156,9 @@ pluginsRouter.get('/agent/:agentId', async (c) => {
   const user = c.get('user');
   const agentId = uuidSchema.parse(c.req.param('agentId'));
 
-  // Verify agent ownership
+  // Verify agent ownership AND workspace isolation
   const agent = await db.query.agents.findFirst({
-    where: and(eq(agents.id, agentId), eq(agents.userId, user.userId)),
+    where: and(eq(agents.id, agentId), eq(agents.userId, user.userId), eq(agents.workspaceId, user.workspaceId!)),
   });
   if (!agent) return c.json({ error: 'Agent not found' }, 404);
 
@@ -188,9 +189,9 @@ pluginsRouter.put('/agent/:agentId/:pluginId', async (c) => {
   const agentId = uuidSchema.parse(c.req.param('agentId'));
   const pluginId = uuidSchema.parse(c.req.param('pluginId'));
 
-  // Verify agent ownership
+  // Verify agent ownership AND workspace isolation
   const agent = await db.query.agents.findFirst({
-    where: and(eq(agents.id, agentId), eq(agents.userId, user.userId)),
+    where: and(eq(agents.id, agentId), eq(agents.userId, user.userId), eq(agents.workspaceId, user.workspaceId!)),
   });
   if (!agent) return c.json({ error: 'Agent not found' }, 404);
 

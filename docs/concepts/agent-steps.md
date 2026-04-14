@@ -121,15 +121,6 @@ Previous analysis:
 {% endfor %}
 ```
 
-### Backward Compatibility
-
-Old-style placeholders are auto-converted:
-
-| Old Syntax | Converted To |
-|---|---|
-| `<PRECEDENT_OUTPUT>` | <span v-pre>`{{ precedent_output }}`</span> |
-| <span v-pre>`{{ Properties.KEY }}`</span> | <span v-pre>`{{ properties.KEY }}`</span> |
-
 ### Precedent Output
 
 For **step 1**, precedent output is an empty string by default.

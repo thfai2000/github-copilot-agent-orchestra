@@ -667,7 +667,7 @@ describe('Execution routes — authenticated', () => {
 
 describe('Supervisor routes — authenticated', () => {
   it('GET /api/supervisor/status returns agent status counts', async () => {
-    const token = await getToken();
+    const token = await getToken('workspace_admin');
     mockFindMany.mockResolvedValueOnce([
       { id: 'a1', status: 'active' },
       { id: 'a2', status: 'active' },
@@ -683,7 +683,7 @@ describe('Supervisor routes — authenticated', () => {
   });
 
   it('POST /api/supervisor/emergency-stop pauses agents', async () => {
-    const token = await getToken();
+    const token = await getToken('workspace_admin');
     mockUpdateReturning.mockResolvedValueOnce([]);
 
     const res = await app.request('/api/supervisor/emergency-stop', {
@@ -694,7 +694,7 @@ describe('Supervisor routes — authenticated', () => {
   });
 
   it('POST /api/supervisor/resume-all resumes agents', async () => {
-    const token = await getToken();
+    const token = await getToken('workspace_admin');
     mockUpdateReturning.mockResolvedValueOnce([]);
 
     const res = await app.request('/api/supervisor/resume-all', {
@@ -702,6 +702,15 @@ describe('Supervisor routes — authenticated', () => {
       headers: authHeaders(token),
     });
     expect(res.status).toBe(200);
+  });
+
+  it('POST /api/supervisor/emergency-stop rejects non-admin users', async () => {
+    const token = await getToken('creator_user');
+    const res = await app.request('/api/supervisor/emergency-stop', {
+      method: 'POST',
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
   });
 });
 

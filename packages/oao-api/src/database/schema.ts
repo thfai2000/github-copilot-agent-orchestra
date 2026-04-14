@@ -222,6 +222,7 @@ export const stepExecutions = pgTable('step_executions', {
   resolvedPrompt: text('resolved_prompt'),
   output: text('output'),
   reasoningTrace: jsonb('reasoning_trace'),
+  liveOutput: jsonb('live_output'), // array of intermediate events streamed during execution
   status: stepStatusEnum('status').notNull().default('pending'),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),

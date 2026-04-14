@@ -8,9 +8,12 @@ const logger = createLogger('supervisor');
 const supervisorRouter = new Hono();
 supervisorRouter.use('/*', authMiddleware);
 
-// POST /emergency-stop — pause ALL agents immediately
+// POST /emergency-stop — pause ALL agents immediately (admin only)
 supervisorRouter.post('/emergency-stop', async (c) => {
   const user = c.get('user');
+  if (user.role !== 'workspace_admin' && user.role !== 'super_admin') {
+    return c.json({ error: 'Admin access required for emergency stop' }, 403);
+  }
   logger.warn({ userId: user.userId }, 'EMERGENCY STOP triggered');
 
   const result = await db
@@ -32,9 +35,12 @@ supervisorRouter.post('/emergency-stop', async (c) => {
   });
 });
 
-// POST /resume-all — resume ALL paused agents
+// POST /resume-all — resume ALL paused agents (admin only)
 supervisorRouter.post('/resume-all', async (c) => {
   const user = c.get('user');
+  if (user.role !== 'workspace_admin' && user.role !== 'super_admin') {
+    return c.json({ error: 'Admin access required for resume all' }, 403);
+  }
   logger.info({ userId: user.userId }, 'Resume all agents triggered');
 
   const result = await db
@@ -56,8 +62,12 @@ supervisorRouter.post('/resume-all', async (c) => {
   });
 });
 
-// GET /status — overview of all agent statuses
+// GET /status — overview of all agent statuses (admin only)
 supervisorRouter.get('/status', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'workspace_admin' && user.role !== 'super_admin') {
+    return c.json({ error: 'Admin access required' }, 403);
+  }
   const allAgents = await db.query.agents.findMany({
     columns: { id: true, name: true, status: true, updatedAt: true },
   });

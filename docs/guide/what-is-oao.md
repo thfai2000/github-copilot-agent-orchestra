@@ -43,7 +43,7 @@ Organizations adopting AI automation at scale face additional requirements that 
 
 - **Workspace isolation** — Each workspace provides a fully isolated boundary for administration, credentials, agents, and workflows. Teams share the same platform without risk of cross-tenant data leakage. Workspace admins manage their own users, quotas, and secrets independently.
 
-- **Prompt templating with variables** — Workflow steps use Jinja2 templates with user-defined variables (e.g., `{{ properties.REPORT_DATE }}`) and webhook payload data (e.g., `{{ trigger.body.issue_url }}`). This eliminates prompt duplication and enables operations teams to configure workflows without modifying agent code.
+- **Prompt templating with variables** — Workflow steps use Jinja2 templates with user-defined variables (e.g., <span v-pre>`{{ properties.REPORT_DATE }}`</span>) and webhook payload data (e.g., <span v-pre>`{{ inputs.issue_url }}`</span>). This eliminates prompt duplication and enables operations teams to configure workflows without modifying agent code.
 
 - **Request usage management** — Per-workspace quota settings enforce daily and monthly token limits. Usage is tracked per user, model, and day. Quota enforcement blocks execution when limits are exceeded, preventing cost overruns. Administrators define limits per workspace; individual agents inherit or override them.
 

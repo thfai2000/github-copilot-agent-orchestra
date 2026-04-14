@@ -13,10 +13,6 @@ const env = new nunjucks.Environment(null, {
 /**
  * Render a Jinja2 template string with the given variables.
  *
- * Backward compatibility:
- *   - `<PRECEDENT_OUTPUT>` is auto-converted to `{{ precedent_output }}`
- *   - `{{ Properties.KEY }}` is auto-converted to `{{ properties.KEY }}`
- *
  * Available namespaces in the template context:
  *   - `properties.*`       — agent/user/workspace property values
  *   - `credentials.*`      — agent/user/workspace credential values
@@ -33,12 +29,7 @@ export function renderTemplate(
   template: string,
   context: Record<string, unknown>,
 ): string {
-  // Backward compatibility: convert old-style placeholders to Jinja2
-  const normalized = template
-    .replace(/<PRECEDENT_OUTPUT>/g, '{{ precedent_output }}')
-    .replace(/\{\{\s*Properties\.(\w+)\s*\}\}/g, '{{ properties.$1 }}');
-
-  return env.renderString(normalized, context);
+  return env.renderString(template, context);
 }
 
 /**

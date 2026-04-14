@@ -16,9 +16,9 @@ mcpServersRouter.get('/', async (c) => {
     return c.json({ error: 'Valid agentId query parameter is required' }, 400);
   }
 
-  // Verify agent ownership
+  // Verify agent ownership AND workspace isolation
   const agent = await db.query.agents.findFirst({
-    where: and(eq(agents.id, agentId), eq(agents.userId, user.userId)),
+    where: and(eq(agents.id, agentId), eq(agents.userId, user.userId), eq(agents.workspaceId, user.workspaceId!)),
   });
   if (!agent) return c.json({ error: 'Agent not found' }, 404);
 
@@ -46,9 +46,9 @@ mcpServersRouter.post('/', async (c) => {
   const parsed = createMcpServerSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  // Verify agent ownership
+  // Verify agent ownership AND workspace isolation
   const agent = await db.query.agents.findFirst({
-    where: and(eq(agents.id, parsed.data.agentId), eq(agents.userId, user.userId)),
+    where: and(eq(agents.id, parsed.data.agentId), eq(agents.userId, user.userId), eq(agents.workspaceId, user.workspaceId!)),
   });
   if (!agent) return c.json({ error: 'Agent not found' }, 404);
 
@@ -96,7 +96,7 @@ mcpServersRouter.put('/:id', async (c) => {
   if (!existing) return c.json({ error: 'MCP server config not found' }, 404);
 
   const agent = await db.query.agents.findFirst({
-    where: and(eq(agents.id, existing.agentId), eq(agents.userId, user.userId)),
+    where: and(eq(agents.id, existing.agentId), eq(agents.userId, user.userId), eq(agents.workspaceId, user.workspaceId!)),
   });
   if (!agent) return c.json({ error: 'Agent not found' }, 404);
 
@@ -131,7 +131,7 @@ mcpServersRouter.delete('/:id', async (c) => {
   if (!existing) return c.json({ error: 'MCP server config not found' }, 404);
 
   const agent = await db.query.agents.findFirst({
-    where: and(eq(agents.id, existing.agentId), eq(agents.userId, user.userId)),
+    where: and(eq(agents.id, existing.agentId), eq(agents.userId, user.userId), eq(agents.workspaceId, user.workspaceId!)),
   });
   if (!agent) return c.json({ error: 'Agent not found' }, 404);
 

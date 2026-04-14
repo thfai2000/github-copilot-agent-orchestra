@@ -100,11 +100,3 @@ Analyze the default watchlist.
 {% endfor %}
 ```
 
-## Backward Compatibility
-
-Old-style placeholders are auto-converted:
-
-| Old Syntax | Converted To |
-|---|---|
-| `<PRECEDENT_OUTPUT>` | <span v-pre>`{{ precedent_output }}`</span> |
-| <span v-pre>`{{ Properties.KEY }}`</span> | <span v-pre>`{{ properties.KEY }}`</span> |

@@ -94,7 +94,7 @@ executionsRouter.get('/active', async (c) => {
   if (!user.workspaceId) return c.json({ executions: [] });
 
   const workflowId = c.req.query('workflowId');
-  if (!workflowId) return c.json({ error: 'workflowId query param required' }, 400);
+  if (!workflowId || !uuidSchema.safeParse(workflowId).success) return c.json({ error: 'Valid workflowId query param required' }, 400);
 
   // Verify user can see this workflow
   const workflow = await db.query.workflows.findFirst({
@@ -185,6 +185,31 @@ executionsRouter.post('/:id/retry', async (c) => {
 
   const newExecution = await retryWorkflowExecution(id);
   return c.json({ execution: newExecution }, 201);
+});
+
+// GET /:id/steps/:stepId/live — get live intermediate output for a running step
+executionsRouter.get('/:id/steps/:stepId/live', async (c) => {
+  const user = c.get('user');
+  const executionId = uuidSchema.parse(c.req.param('id'));
+  const stepId = uuidSchema.parse(c.req.param('stepId'));
+
+  const result = await verifyExecutionAccess(executionId, user.workspaceId, user.userId);
+  if (!result) return c.json({ error: 'Execution not found' }, 404);
+
+  const stepExec = await db.query.stepExecutions.findFirst({
+    where: and(
+      eq(stepExecutions.id, stepId),
+      eq(stepExecutions.workflowExecutionId, executionId),
+    ),
+  });
+  if (!stepExec) return c.json({ error: 'Step execution not found' }, 404);
+
+  return c.json({
+    stepExecutionId: stepExec.id,
+    status: stepExec.status,
+    liveOutput: stepExec.liveOutput ?? [],
+    output: stepExec.output,
+  });
 });
 
 export default executionsRouter;
