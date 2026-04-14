@@ -11,8 +11,21 @@ PATs use `oao_` prefix (e.g., `Authorization: Bearer oao_abc123...`). PATs have 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | POST | `/api/auth/register` | No | Register new user (optional `workspaceSlug`, defaults to `default`) |
-| POST | `/api/auth/login` | No | Login, returns JWT with workspace context |
+| POST | `/api/auth/login` | No | Login with `email`, `password`, optional `provider` (`database`/`ldap`). Returns JWT |
 | GET | `/api/auth/me` | JWT | Current user info + workspace |
+| PUT | `/api/auth/change-password` | JWT | Change password (database users only, LDAP users get 400) |
+| GET | `/api/auth/providers` | No | List enabled auth providers for a workspace (query: `?workspace=slug`) |
+
+## Auth Providers (Admin)
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/api/auth-providers` | admin | List auth providers for current workspace |
+| POST | `/api/auth-providers` | admin | Create auth provider (type, name, config) |
+| GET | `/api/auth-providers/:id` | admin | Get single auth provider (sensitive fields redacted) |
+| PUT | `/api/auth-providers/:id` | admin | Update auth provider (config is merged, not replaced) |
+| DELETE | `/api/auth-providers/:id` | admin | Delete auth provider |
+| POST | `/api/auth-providers/test-connection` | admin | Test LDAP connection (dry-run bind + search) |
 
 ## Agents
 
@@ -93,19 +106,6 @@ For agents with `sourceType: database`:
 | POST | `/api/mcp-servers` | Add MCP server config |
 | PUT | `/api/mcp-servers/:id` | Update config |
 | DELETE | `/api/mcp-servers/:id` | Delete config |
-
-## Plugins
-
-| Method | Path | Role | Description |
-|---|---|---|---|
-| GET | `/api/plugins` | Any | List plugins in workspace |
-| POST | `/api/plugins` | admin | Install plugin from Git |
-| GET | `/api/plugins/:id` | Any | Plugin detail |
-| PUT | `/api/plugins/:id` | admin | Update plugin |
-| DELETE | `/api/plugins/:id` | admin | Delete plugin |
-| POST | `/api/plugins/:id/sync` | admin | Re-sync from Git |
-| GET | `/api/plugins/agent/:agentId` | Any | Plugins enabled for agent |
-| PUT | `/api/plugins/agent/:agentId` | creator+ | Toggle plugin for agent |
 
 ## Admin
 

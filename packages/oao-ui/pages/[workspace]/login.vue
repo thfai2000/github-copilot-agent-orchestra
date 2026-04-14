@@ -10,6 +10,25 @@
         {{ error }}
       </div>
 
+      <!-- Provider selector (shown when multiple providers available) -->
+      <div v-if="providers.length > 1" class="mb-4">
+        <label class="block text-sm font-medium mb-1.5">Authentication Method</label>
+        <div class="flex gap-2">
+          <button
+            v-for="p in providers"
+            :key="p.type"
+            type="button"
+            @click="selectedProvider = p.type"
+            class="flex-1 py-2 px-3 rounded-md border text-sm font-medium transition"
+            :class="selectedProvider === p.type
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border text-muted-foreground hover:border-foreground/30'"
+          >
+            {{ p.name }}
+          </button>
+        </div>
+      </div>
+
       <form @submit.prevent="handleLogin" class="space-y-4">
         <div>
           <label class="block text-sm font-medium mb-1.5">Email</label>
@@ -56,14 +75,33 @@ const workspaceSlug = computed(() => (route.params.workspace as string) || 'defa
 const form = reactive({ email: '', password: '' });
 const error = ref('');
 const loading = ref(false);
+const selectedProvider = ref('database');
+const providers = ref<Array<{ type: string; name: string }>>([]);
+
+// Fetch available auth providers for this workspace
+onMounted(async () => {
+  try {
+    const res = await $fetch<{ providers: Array<{ type: string; name: string }> }>(
+      `/api/auth/providers?workspace=${workspaceSlug.value}`,
+    );
+    providers.value = res.providers;
+    // Default to first provider
+    if (providers.value.length > 0) {
+      selectedProvider.value = providers.value[0].type;
+    }
+  } catch {
+    // Fall back to database-only
+    providers.value = [{ type: 'database', name: 'Email & Password' }];
+  }
+});
 
 async function handleLogin() {
   error.value = '';
   loading.value = true;
   try {
-    const res = await $fetch<{ token: string; user: { id: string; email: string; name: string; role: string; workspaceId: string; workspaceSlug: string } }>(
+    const res = await $fetch<{ token: string; user: { id: string; email: string; name: string; role: string; authProvider: string; workspaceId: string; workspaceSlug: string } }>(
       '/api/auth/login',
-      { method: 'POST', body: { email: form.email, password: form.password } },
+      { method: 'POST', body: { email: form.email, password: form.password, provider: selectedProvider.value } },
     );
     setAuth(res.token, { ...res.user });
     await nextTick();
@@ -72,6 +110,8 @@ async function handleLogin() {
     const msg = e?.data?.error || e?.statusMessage || '';
     if (e?.status === 401 || msg.includes('Invalid')) {
       error.value = 'Invalid email or password.';
+    } else if (e?.status === 400) {
+      error.value = msg || 'Authentication error.';
     } else if (e?.status >= 500 || msg.includes('fetch') || msg.includes('connect')) {
       error.value = 'Cannot reach OAO API. Please check that the service is running.';
     } else {

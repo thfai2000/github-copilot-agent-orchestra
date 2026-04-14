@@ -1,6 +1,6 @@
 export { createJwt, verifyJwt } from './auth/jwt.js';
 export { authMiddleware, registerPatValidator } from './auth/middleware.js';
-export type { AuthUser, JwtPayload } from './auth/types.js';
+export type { AuthUser, JwtPayload, AuthProviderType } from './auth/types.js';
 export { createLogger } from './utils/logger.js';
 export { encrypt, decrypt } from './utils/encryption.js';
 export {

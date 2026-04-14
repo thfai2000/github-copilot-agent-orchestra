@@ -102,7 +102,6 @@ const mainNav = computed(() => [
   { to: `/${ws.value}/instances`, icon: '🖥️', label: 'Instances' },
   { to: `/${ws.value}/events`, icon: '📡', label: 'Events' },
   { to: `/${ws.value}/variables`, icon: '🔑', label: 'Variables' },
-  { to: `/${ws.value}/plugins`, icon: '🧩', label: 'Plugins' },
   { to: `/${ws.value}/admin/quotas`, icon: '📊', label: 'Quotas' },
   { to: `/${ws.value}/settings/change-password`, icon: '⚙️', label: 'Settings' },
 ]);
@@ -110,6 +109,7 @@ const mainNav = computed(() => [
 const adminNav = computed(() => [
   { to: `/${ws.value}/admin/users`, icon: '👥', label: 'Users' },
   { to: `/${ws.value}/admin/models`, icon: '🧠', label: 'Models' },
+  { to: `/${ws.value}/admin/auth-providers`, icon: '🔐', label: 'Auth Providers' },
 ]);
 
 function isActiveRoute(path: string) {

@@ -128,26 +128,6 @@
           </CardContent>
         </Card>
 
-        <!-- Plugins (optional at creation, can be toggled on detail page) -->
-        <Card v-if="availablePlugins.length > 0">
-          <CardHeader>
-            <CardTitle>Plugins</CardTitle>
-            <CardDescription>Enable plugins for this agent. You can also manage plugins from the agent detail page after creation.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div class="space-y-2">
-              <div v-for="p in availablePlugins" :key="p.id"
-                class="p-3 rounded-lg border border-border flex items-center justify-between">
-                <div>
-                  <p class="font-semibold text-sm">{{ p.name }}</p>
-                  <p v-if="p.description" class="text-xs text-muted-foreground">{{ p.description }}</p>
-                </div>
-                <Switch :checked="form.enabledPlugins.includes(p.id)" @update:checked="togglePlugin(p.id, $event)" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         <div class="flex gap-3">
           <Button type="submit" :disabled="submitting">
             {{ submitting ? 'Creating...' : 'Create Agent' }}
@@ -195,14 +175,6 @@ const form = reactive({
   githubTokenSource: '' as string,
   scope: 'user' as 'user' | 'workspace',
   builtinToolsEnabled: BUILTIN_TOOLS.map(t => t.name),
-  enabledPlugins: [] as string[],
-});
-
-// Fetch available plugins
-const { data: pluginsData } = await useFetch('/api/plugins', { headers });
-const availablePlugins = computed(() => {
-  const list = (pluginsData.value as any)?.plugins ?? [];
-  return list.filter((p: any) => p.isAllowed);
 });
 
 // Fetch credentials for GitHub token selector
@@ -222,14 +194,6 @@ function toggleTool(name: string, checked: boolean | string) {
     if (!form.builtinToolsEnabled.includes(name)) form.builtinToolsEnabled.push(name);
   } else {
     form.builtinToolsEnabled = form.builtinToolsEnabled.filter(t => t !== name);
-  }
-}
-
-function togglePlugin(id: string, checked: boolean | string) {
-  if (checked) {
-    if (!form.enabledPlugins.includes(id)) form.enabledPlugins.push(id);
-  } else {
-    form.enabledPlugins = form.enabledPlugins.filter(p => p !== id);
   }
 }
 

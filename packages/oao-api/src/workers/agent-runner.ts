@@ -48,11 +48,25 @@ async function run() {
     });
     if (!stepExec) throw new Error(`Step execution ${stepExecutionId} not found`);
 
+    // Guard: skip if the step was already marked failed/completed (e.g. parent timed out)
+    if (stepExec.status === 'failed' || stepExec.status === 'completed') {
+      logger.warn({ stepExecutionId, status: stepExec.status }, 'Step already finished, skipping');
+      process.exit(0);
+      return;
+    }
+
     // 2. Load parent workflow execution
     const execution = await db.query.workflowExecutions.findFirst({
       where: eq(workflowExecutions.id, executionId),
     });
     if (!execution) throw new Error(`Execution ${executionId} not found`);
+
+    // Guard: skip if parent execution is already done
+    if (execution.status === 'failed' || execution.status === 'completed' || execution.status === 'cancelled') {
+      logger.warn({ executionId, status: execution.status }, 'Parent execution already finished, skipping');
+      process.exit(0);
+      return;
+    }
 
     // 3. Load workflow
     const workflow = await db.query.workflows.findFirst({
@@ -152,11 +166,12 @@ async function run() {
       workflowDefaultReasoningEffort: workflow.defaultReasoningEffort,
     });
 
-    // 10. Write success result to DB
+    // 10. Write success result to DB (include actual rendered prompt)
     await db
       .update(stepExecutions)
       .set({
         status: 'completed',
+        resolvedPrompt: result.resolvedPrompt,
         output: result.output,
         reasoningTrace: result.reasoningTrace,
         completedAt: new Date(),

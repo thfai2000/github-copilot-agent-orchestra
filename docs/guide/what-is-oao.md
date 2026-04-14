@@ -51,8 +51,6 @@ Organizations adopting AI automation at scale face additional requirements that 
 
 - **Agent decision audit trail** — Agents can record structured decisions via the built-in `record_decision` tool, creating a queryable trail of what was decided, why, and with what confidence. Combined with full step execution logs (including tool calls and reasoning traces), teams can reconstruct any agent's decision process.
 
-- **Plugin ecosystem** — Git-hosted plugins extend agent capabilities without modifying core code. Plugins can add skills (markdown instruction files), MCP server connections, and custom tool definitions. This enables standardized tool libraries across the organization.
-
 - **Scalable execution architecture** — Static agent workers handle steady-state workloads; ephemeral instances (K8s) handle burst demand. Both types run simultaneously in Kubernetes, letting teams balance cost against isolation for different workflow tiers.
 
 ## The Solution
@@ -117,3 +115,4 @@ All backend roles (API, Controller, Agent Worker) run from a single `oao-core` D
 - [Build & Deploy](/guide/build-and-deploy) — Checkout source code and build from scratch
 - [Agents & Tools](/concepts/agents) — Understand agents and the tool system
 - [AI Security](/concepts/security) — Zero credential exposure with Jinja2 templates
+- [Auth Providers](/concepts/auth-providers) — Database + LDAP/Active Directory authentication

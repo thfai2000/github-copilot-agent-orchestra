@@ -19,7 +19,7 @@ Tenant isolation boundary. All entities reference a workspace.
 
 ### users
 
-Independent auth (email/password/bcrypt).
+Independent auth (email/password/bcrypt). Supports multiple auth providers (database, LDAP).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -27,7 +27,8 @@ Independent auth (email/password/bcrypt).
 | workspaceId | UUID FK → workspaces | Cascade delete |
 | email | varchar(255) | Unique |
 | name | varchar(100) | |
-| passwordHash | text | bcrypt |
+| passwordHash | text | bcrypt (nullable for LDAP users) |
+| authProvider | auth_provider_type | `database` or `ldap` (default: `database`) |
 | role | user_role | Default: `creator_user` |
 | createdAt | timestamp | |
 

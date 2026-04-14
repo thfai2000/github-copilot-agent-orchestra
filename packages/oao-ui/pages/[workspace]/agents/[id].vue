@@ -415,50 +415,6 @@
           <p v-else class="text-muted-foreground text-sm">No MCP JSON template configured. Add a Jinja2 template to dynamically configure MCP servers with variable substitution.</p>
         </CardContent>
       </Card>
-
-      <!-- Plugins Section -->
-      <Card>
-        <CardHeader>
-          <div>
-            <CardTitle>Plugins</CardTitle>
-            <CardDescription>Enable or disable available plugins for this agent. Plugins add tools, skills, and MCP servers to Copilot sessions.</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div v-if="pluginsLoading" class="text-muted-foreground text-sm">Loading plugins...</div>
-          <div class="space-y-2">
-            <div v-for="p in agentPlugins" :key="p.id"
-              class="p-3 rounded-lg border border-border flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div>
-                  <p class="font-semibold text-sm">{{ p.name }}</p>
-                  <p v-if="p.description" class="text-xs text-muted-foreground">{{ p.description }}</p>
-                  <div class="flex gap-2 mt-1">
-                    <Badge v-if="(p.manifestCache as any)?.tools?.length" variant="outline" class="text-[10px]">
-                      {{ (p.manifestCache as any).tools.length }} tools
-                    </Badge>
-                    <Badge v-if="(p.manifestCache as any)?.skills?.length" variant="outline" class="text-[10px]">
-                      {{ (p.manifestCache as any).skills.length }} skills
-                    </Badge>
-                    <Badge v-if="(p.manifestCache as any)?.mcpServers?.length" variant="outline" class="text-[10px]">
-                      {{ (p.manifestCache as any).mcpServers.length }} MCP servers
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-              <div class="flex items-center gap-3">
-                <Switch :checked="p.isEnabled" @update:checked="togglePlugin(p.id, $event)" />
-                <Badge :variant="p.isEnabled ? 'default' : 'secondary'" class="w-16 justify-center">
-                  {{ p.isEnabled ? 'On' : 'Off' }}
-                </Badge>
-              </div>
-            </div>
-          </div>
-          <p v-if="agentPlugins.length === 0 && !pluginsLoading" class="text-muted-foreground text-sm">
-            No plugins available. Admin must register and allow plugins first.
-          </p>
-        </CardContent>
-      </Card>
     </div>
     <p v-else class="text-muted-foreground mt-4">Agent not found.</p>
   </div>
@@ -487,7 +443,6 @@ const BUILTIN_TOOLS = [
 const { data: agentData, refresh: refreshAgent } = await useFetch(`/api/agents/${agentId}`, { headers });
 const { data: varData, refresh: refreshVars } = await useFetch(`/api/variables?agentId=${agentId}`, { headers });
 const { data: mcpData, refresh: refreshMcp } = await useFetch(`/api/mcp-servers?agentId=${agentId}`, { headers });
-const { data: pluginData, pending: pluginsLoading, refresh: refreshPlugins } = await useFetch(`/api/plugins/agent/${agentId}`, { headers });
 
 // Agent files for database source
 const { data: filesData, refresh: refreshFiles } = await useFetch(`/api/agent-files/${agentId}`, { headers });
@@ -495,7 +450,6 @@ const { data: filesData, refresh: refreshFiles } = await useFetch(`/api/agent-fi
 const agent = computed(() => agentData.value?.agent);
 const agentVariables = computed(() => varData.value?.variables ?? []);
 const mcpServers = computed(() => mcpData.value?.servers ?? []);
-const agentPlugins = computed(() => (pluginData.value as any)?.plugins ?? []);
 const agentFiles = computed(() => (filesData.value as any)?.files ?? []);
 
 // Credentials for GitHub token selector
@@ -594,20 +548,6 @@ async function handleDeleteVar(id: string, key: string) {
   if (!confirm(`Delete variable "${key}"?`)) return;
   try { await $fetch(`/api/variables/${id}`, { method: 'DELETE', headers }); await refreshVars(); }
   catch { alert('Failed to delete variable'); }
-}
-
-// ── Plugin management ───────────────────────────────────────────
-async function togglePlugin(pluginId: string, enabled: boolean) {
-  try {
-    await $fetch(`/api/plugins/agent/${agentId}/${pluginId}`, {
-      method: 'PUT',
-      headers,
-      body: { isEnabled: enabled },
-    });
-    await refreshPlugins();
-  } catch {
-    alert('Failed to update plugin');
-  }
 }
 
 // ── MCP Server management ───────────────────────────────────────

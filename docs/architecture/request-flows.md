@@ -68,7 +68,6 @@ All UI routes are workspace-scoped: `/{workspace-slug}/{page}`
 | `/{ws}/instances` | Agent instance monitoring |
 | `/{ws}/events` | System event viewer |
 | `/{ws}/variables` | Variable management |
-| `/{ws}/plugins` | Plugin management |
 | `/{ws}/admin/users` | User administration |
 | `/{ws}/admin/models` | Model registry |
 | `/{ws}/admin/quotas` | Quota settings |

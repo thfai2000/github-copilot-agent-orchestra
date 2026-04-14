@@ -11,8 +11,8 @@ erDiagram
     workspaces ||--o{ workflows : "contains"
     workspaces ||--o{ workspace_variables : "has variables"
     workspaces ||--o{ models : "has models"
-    workspaces ||--o{ plugins : "has plugins"
     workspaces ||--o| workspace_security_settings : "has security settings"
+    workspaces ||--o{ auth_providers : "has auth providers"
 
     users ||--o{ agents : "creates"
     users ||--o{ workflows : "creates"
@@ -23,7 +23,6 @@ erDiagram
     agents ||--o{ agent_variables : "has variables"
     agents ||--o{ mcp_server_configs : "has MCP configs"
     agents ||--o{ agent_files : "has files"
-    agents ||--o{ agent_plugins : "has plugins"
     agents ||--o{ webhook_registrations : "has webhooks"
     agents ||--o{ agent_decisions : "has decisions"
     agents ||--o{ agent_memories : "has memories"
@@ -35,8 +34,6 @@ erDiagram
     workflows ||--o{ workflow_executions : "has executions"
 
     workflow_executions ||--o{ step_executions : "has step results"
-
-    plugins ||--o{ agent_plugins : "enabled for"
 ```
 
 ## Enums
@@ -52,6 +49,7 @@ erDiagram
 | `variable_type` | `property`, `credential` |
 | `reasoning_effort` | `low`, `medium`, `high` |
 | `resource_scope` | `user`, `workspace` |
+| `auth_provider_type` | `database`, `ldap` |
 | `event_scope` | `workspace`, `user` |
 | `memory_type` | `observation`, `insight`, `strategy`, `lesson_learned`, `general` |
 | `instance_type` | `static`, `ephemeral` |
@@ -72,4 +70,4 @@ erDiagram
 For full table definitions, see:
 
 - [Core Tables](/database/schema-core) — Tenancy, Agents, Workflows, Executions
-- [Support Tables](/database/schema-support) — Variables, Admin & Quota, Plugins, Audit & Memory, Auth & Tokens
+- [Support Tables](/database/schema-support) — Variables, Admin & Quota, Audit & Memory, Auth & Tokens

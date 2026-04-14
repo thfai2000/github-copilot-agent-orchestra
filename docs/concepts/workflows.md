@@ -114,7 +114,7 @@ graph TB
     AGENT --> SKILLS[Load skill files<br/>explicit paths or directory scan]
     SKILLS --> RENDER[Render Jinja2 prompt template<br/>with variables, inputs, precedent_output]
     RENDER --> MCP[Spawn MCP servers<br/>DB configs + JSON template]
-    MCP --> TOOLS[Load tools<br/>built-in + MCP + plugin]
+    MCP --> TOOLS[Load tools<br/>built-in + MCP]
     TOOLS --> SESSION[Create Copilot Session<br/>system message + tools + model]
     SESSION --> EXEC[Send prompt & wait for response]
     EXEC --> WRITE[Write output + reasoning trace]

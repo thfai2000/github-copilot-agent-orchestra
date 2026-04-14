@@ -41,7 +41,6 @@ graph TB
 | **Admin** — Users & roles | ✅ All workspaces | ✅ Own workspace | ❌ | ❌ |
 | **Admin** — Models | ✅ All workspaces | ✅ Own workspace | ❌ | ❌ |
 | **Admin** — Quota settings | ✅ All workspaces | ✅ Own workspace | ❌ | ❌ |
-| **Admin** — Plugins | ✅ All workspaces | ✅ Own workspace | ❌ | ❌ |
 | **Admin** — Security | ✅ All workspaces | ✅ Own workspace | ❌ | ❌ |
 | **Workspaces** — CRUD | ✅ | ❌ | ❌ | ❌ |
 | **Workspaces** — Move users | ✅ | ❌ | ❌ | ❌ |

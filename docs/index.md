@@ -36,8 +36,8 @@ features:
     title: Multi-Tenant Workspaces
     details: Full workspace isolation with RBAC (super admin, workspace admin, creator, viewer). URL-scoped routing.
   - icon: 🧩
-    title: Plugin & MCP Ecosystem
-    details: Extend agents with Git-hosted plugins and Model Context Protocol (MCP) servers for custom tool integration.
+    title: MCP Ecosystem
+    details: Extend agents with Model Context Protocol (MCP) servers for custom tool integration.
 ---
 
 ## Why Open Agent Orchestra?
@@ -63,6 +63,6 @@ graph LR
 | Workflow orchestration | Built-in multi-step engine | Manual chaining |
 | Scheduling | Cron, datetime, events, webhooks | External (cron jobs) |
 | Multi-tenancy | Workspace isolation + RBAC | Single tenant |
-| Tool ecosystem | Built-in tools + MCP + Plugins | Framework-specific |
+| Tool ecosystem | Built-in tools + MCP | Framework-specific |
 | Execution history | Full audit trail per step | Logging only |
 | Retry mechanism | Per-step retry from failure point | Full restart |

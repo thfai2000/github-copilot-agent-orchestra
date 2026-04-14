@@ -47,6 +47,7 @@ export const reasoningEffortEnum = pgEnum('reasoning_effort', ['high', 'medium',
 export const variableTypeEnum = pgEnum('variable_type', ['property', 'credential']);
 export const agentInstanceTypeEnum = pgEnum('agent_instance_type', ['static', 'ephemeral']);
 export const agentInstanceStatusEnum = pgEnum('agent_instance_status', ['idle', 'busy', 'offline', 'terminated']);
+export const authProviderTypeEnum = pgEnum('auth_provider_type', ['database', 'ldap']);
 
 // ─── Workspaces ──────────────────────────────────────────────────────
 
@@ -65,9 +66,10 @@ export const workspaces = pgTable('workspaces', {
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
-  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  passwordHash: varchar('password_hash', { length: 255 }), // nullable for LDAP users
   name: varchar('name', { length: 100 }).notNull(),
   role: userRoleEnum('role').notNull().default('creator_user'),
+  authProvider: authProviderTypeEnum('auth_provider').notNull().default('database'),
   workspaceId: uuid('workspace_id').references(() => workspaces.id), // null only for super_admin before joining
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -355,47 +357,6 @@ export const workspaceVariables = pgTable(
   }),
 );
 
-// ─── Plugins (workspace-managed registry) ────────────────────────────
-
-export const plugins = pgTable('plugins', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id')
-    .notNull()
-    .references(() => workspaces.id, { onDelete: 'cascade' }),
-  name: varchar('name', { length: 100 }).notNull(),
-  description: text('description'),
-  gitRepoUrl: varchar('git_repo_url', { length: 500 }).notNull(),
-  gitBranch: varchar('git_branch', { length: 100 }).notNull().default('main'),
-  githubTokenEncrypted: text('github_token_encrypted'),
-  manifestCache: jsonb('manifest_cache'), // cached plugin.json contents
-  isAllowed: boolean('is_allowed').notNull().default(false),
-  createdBy: uuid('created_by')
-    .notNull()
-    .references(() => users.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-// ─── Agent Plugins (per-agent toggle) ────────────────────────────────
-
-export const agentPlugins = pgTable(
-  'agent_plugins',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    agentId: uuid('agent_id')
-      .notNull()
-      .references(() => agents.id, { onDelete: 'cascade' }),
-    pluginId: uuid('plugin_id')
-      .notNull()
-      .references(() => plugins.id, { onDelete: 'cascade' }),
-    isEnabled: boolean('is_enabled').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => ({
-    agentPluginIdx: uniqueIndex('agent_plugins_agent_plugin_idx').on(table.agentId, table.pluginId),
-  }),
-);
-
 // ─── Agent Decisions (audit trail) ───────────────────────────────────
 
 export const agentDecisions = pgTable('agent_decisions', {
@@ -579,6 +540,32 @@ export const personalAccessTokens = pgTable(
   (table) => ({
     patUserIdx: index('pat_user_idx').on(table.userId),
     patTokenHashIdx: uniqueIndex('pat_token_hash_idx').on(table.tokenHash),
+  }),
+);
+
+// ─── Auth Providers (workspace-level auth configuration) ─────────────
+
+export const authProviders = pgTable(
+  'auth_providers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    providerType: authProviderTypeEnum('provider_type').notNull(),
+    name: varchar('name', { length: 100 }).notNull(), // display name e.g. "Corporate LDAP"
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    priority: integer('priority').notNull().default(0), // higher = tried first in login
+    config: jsonb('config').notNull().default({}), // provider-specific config
+    // LDAP config stored as jsonb:
+    //   { url, bindDn, bindCredentialEncrypted, searchBase, searchFilter,
+    //     usernameAttribute, emailAttribute, nameAttribute, tlsOptions }
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    authProviderWsIdx: index('auth_providers_ws_idx').on(table.workspaceId),
+    authProviderWsTypeIdx: uniqueIndex('auth_providers_ws_type_name_idx').on(table.workspaceId, table.providerType, table.name),
   }),
 );
 

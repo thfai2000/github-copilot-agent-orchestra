@@ -5,6 +5,7 @@ export interface AuthUser {
   role?: string;
   workspaceId?: string | null;
   workspaceSlug?: string | null;
+  authProvider?: string;
 }
 
 /**

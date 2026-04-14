@@ -40,7 +40,7 @@ spec:
                 sleep 5
               done
               echo "Running Drizzle schema push..."
-              cd /app/packages/oao-api && npx drizzle-kit push
+              cd /app/packages/oao-api && npx drizzle-kit push --force
               echo "Running database seed..."
               cd /app/packages/oao-api && npx tsx src/database/seed.ts
           envFrom:

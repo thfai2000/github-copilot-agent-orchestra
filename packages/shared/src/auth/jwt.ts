@@ -15,6 +15,7 @@ export async function createJwt(user: AuthUser): Promise<string> {
     email: user.email,
     name: user.name,
     role: user.role,
+    authProvider: user.authProvider,
     workspaceId: user.workspaceId,
     workspaceSlug: user.workspaceSlug,
   })

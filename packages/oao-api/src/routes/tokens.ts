@@ -203,6 +203,7 @@ export async function validatePat(rawToken: string) {
     email: user.email,
     name: user.name,
     role: user.role,
+    authProvider: user.authProvider ?? 'database',
     workspaceId: pat.workspaceId,
     workspaceSlug: workspace?.slug ?? null,
     scopes: pat.scopes as PatScope[],

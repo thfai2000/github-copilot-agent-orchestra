@@ -16,12 +16,10 @@ import {
 } from '../database/schema.js';
 import { createLogger } from '@oao/shared';
 import { getRedisConnection } from './redis.js';
-import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
-import { z } from 'zod';
+import { CopilotClient, approveAll } from '@github/copilot-sdk';
 import { prepareAgentWorkspace, prepareDbAgentWorkspace } from './agent-workspace.js';
 import { createAgentTools } from './agent-tools.js';
 import { connectToMcpServer } from './mcp-client.js';
-import { loadAgentPlugins, readPluginSkills, getPluginMcpServers, getPluginToolDefs } from './plugin-loader.js';
 import { renderTemplate, buildTemplateContext } from './jinja-renderer.js';
 
 import { createAgentPod, waitForPodCompletion, deleteAgentPod, acquireAgentSlot, releaseAgentSlot } from './k8s-provisioner.js';
@@ -63,7 +61,6 @@ async function releaseSessionLock(agentId: string, lockValue: string): Promise<v
 /**
  * Extend the session lock TTL (call periodically during long sessions).
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function extendSessionLock(agentId: string): Promise<void> {
   const redis = getRedisConnection();
   const key = `${SESSION_LOCK_PREFIX}${agentId}`;
@@ -581,7 +578,7 @@ export async function executeCopilotSession(params: {
   workflowDefaultModel?: string | null;
   workflowDefaultReasoningEffort?: string | null;
   onProgress?: (events: LiveOutputEvent[]) => void | Promise<void>;
-}): Promise<{ output: string; reasoningTrace: Record<string, unknown> }> {
+}): Promise<{ output: string; resolvedPrompt: string; reasoningTrace: Record<string, unknown> }> {
   const { agent, step, resolvedPrompt: rawPrompt, precedentOutput, credentials, properties, envVariables, inputs, workflowId, workspaceId, executionId, userId, workflowDefaultModel, workflowDefaultReasoningEffort, onProgress } = params;
 
   // Render prompt template using Jinja2 (nunjucks) with full variable context
@@ -611,6 +608,13 @@ export async function executeCopilotSession(params: {
       `Agent ${agent.name} (${agent.id}) already has an active Copilot session. Concurrent execution blocked.`,
     );
   }
+
+  // Extend session lock every 5 minutes to prevent TTL expiry on long sessions
+  const lockExtendTimer = setInterval(() => {
+    extendSessionLock(agent.id).catch((err) => {
+      logger.warn({ agentId: agent.id, error: err }, 'Failed to extend session lock');
+    });
+  }, 5 * 60 * 1000);
 
   // 1. Prepare agent workspace based on source type
   // Resolve GitHub token: prefer credential reference over inline encrypted token
@@ -644,7 +648,6 @@ export async function executeCopilotSession(params: {
 
   const toolCalls: Array<{ tool: string; args: unknown }> = [];
   const mcpCleanups: Array<() => Promise<void>> = [];
-  const pluginCleanups: Array<() => Promise<void>> = [];
 
   try {
     // 1.5 Write .env file with variables marked for env injection
@@ -660,7 +663,7 @@ export async function executeCopilotSession(params: {
     const skillsContent = workspace.skills.length
       ? `\n\n## Agent Skills\n\n${workspace.skills.join('\n\n---\n\n')}`
       : '';
-    let systemContent = `${workspace.agentMarkdown}${skillsContent}`;
+    const systemContent = `${workspace.agentMarkdown}${skillsContent}`;
 
     // 3. Create agent tools (built-in + MCP tools from configured servers)
     const builtInTools = createAgentTools(credentials, {
@@ -730,79 +733,6 @@ export async function executeCopilotSession(params: {
         }
       } catch (err) {
         logger.warn({ error: err }, 'Failed to render/parse mcp.json.template, skipping');
-      }
-    }
-
-    // 3.2 Load enabled plugins for this agent
-    const loadedPlugins = await loadAgentPlugins(agent.id);
-    for (const loaded of loadedPlugins) {
-      pluginCleanups.push(loaded.cleanup);
-
-      // 3.2.1 Merge plugin skills into system message
-      const pluginSkills = await readPluginSkills(loaded);
-      if (pluginSkills.length > 0) {
-        systemContent += `\n\n## Plugin Skills (${loaded.manifest.name})\n\n${pluginSkills.join('\n\n---\n\n')}`;
-      }
-
-      // 3.2.2 Merge plugin MCP servers
-      const pluginMcpServers = getPluginMcpServers(loaded);
-      for (const pmcp of pluginMcpServers) {
-        try {
-          const envMapping = pmcp.envMapping ?? {};
-          const resolvedEnv: Record<string, string> = {};
-          for (const [credKey, envVar] of Object.entries(envMapping)) {
-            const value = credentials.get(credKey);
-            if (value) resolvedEnv[envVar] = value;
-          }
-          const mcp = await connectToMcpServer({
-            name: `${loaded.manifest.name}/${pmcp.name}`,
-            command: pmcp.command,
-            args: pmcp.args,
-            env: resolvedEnv,
-            writeTools: pmcp.writeTools,
-          });
-          allTools = [...allTools, ...mcp.tools];
-          mcpCleanups.push(mcp.cleanup);
-          logger.info({ plugin: loaded.manifest.name, server: pmcp.name, toolCount: mcp.tools.length }, 'Plugin MCP tools loaded');
-        } catch (err) {
-          logger.warn({ plugin: loaded.manifest.name, server: pmcp.name, error: err }, 'Failed to connect plugin MCP server, skipping');
-        }
-      }
-
-      // 3.2.3 Load plugin tool scripts as Copilot SDK tools
-      const pluginToolDefs = getPluginToolDefs(loaded);
-      for (const toolDef of pluginToolDefs) {
-        try {
-          // Dynamically import the tool script and wrap as a Copilot SDK tool
-          const toolModule = await import(toolDef.absolutePath);
-          if (typeof toolModule.handler === 'function') {
-            // Build a simple Zod schema from JSON Schema properties
-            const schema = toolDef.parameters as { properties?: Record<string, { type: string; description?: string }>; required?: string[] };
-            const zodShape: Record<string, z.ZodTypeAny> = {};
-            if (schema.properties) {
-              for (const [key, prop] of Object.entries(schema.properties)) {
-                let field: z.ZodTypeAny = prop.type === 'number' ? z.number() : prop.type === 'boolean' ? z.boolean() : z.string();
-                if (prop.description) field = field.describe(prop.description);
-                if (!schema.required?.includes(key)) field = field.optional();
-                zodShape[key] = field;
-              }
-            }
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const tool = (defineTool as any)(`${loaded.manifest.name}/${toolDef.name}`, {
-              description: toolDef.description,
-              parameters: z.object(zodShape),
-              handler: async (params: Record<string, unknown>) => {
-                return toolModule.handler(params, { agentId: agent.id, workflowId, executionId });
-              },
-            });
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            allTools = [...allTools, tool as any];
-            logger.info({ plugin: loaded.manifest.name, tool: toolDef.name }, 'Plugin tool loaded');
-          }
-        } catch (err) {
-          logger.warn({ plugin: loaded.manifest.name, tool: toolDef.name, error: err }, 'Failed to load plugin tool, skipping');
-        }
       }
     }
 
@@ -957,6 +887,7 @@ export async function executeCopilotSession(params: {
 
     return {
       output,
+      resolvedPrompt,
       reasoningTrace: {
         model,
         reasoningEffort: step.reasoningEffort ?? null,
@@ -968,10 +899,8 @@ export async function executeCopilotSession(params: {
       },
     };
   } finally {
+    clearInterval(lockExtendTimer);
     for (const cleanup of mcpCleanups) {
-      try { await cleanup(); } catch { /* ignore */ }
-    }
-    for (const cleanup of pluginCleanups) {
       try { await cleanup(); } catch { /* ignore */ }
     }
     await workspace.cleanup();

@@ -13,7 +13,7 @@ sequenceDiagram
 
     Engine->>SDK: new CopilotClient()
     Engine->>Engine: Build system message<br/>(agent markdown + skills)
-    Engine->>Engine: Prepare tools<br/>(built-in + MCP + plugin)
+    Engine->>Engine: Prepare tools<br/>(built-in + MCP)
     Engine->>SDK: client.createSession({model, tools, systemMessage})
     SDK-->>Session: Session created
     Engine->>Session: session.sendAndWait({prompt}, timeout)
@@ -32,7 +32,6 @@ sequenceDiagram
 The system message is assembled from:
 1. **Agent markdown** — the main `.md` file (personality, instructions)
 2. **Skills** — additional `.md` files appended as `## Agent Skills` section
-3. **Plugin skills** — skills from enabled plugins (if any)
 
 ```typescript
 const systemContent = `${agentMarkdown}${skillsContent}`;
@@ -44,7 +43,7 @@ const systemContent = `${agentMarkdown}${skillsContent}`;
 ```mermaid
 graph TB
     CLONE[1. Clone Git repo<br/>to temp directory] --> CREDS[2. Load & merge credentials<br/>workspace → user → agent]
-    CREDS --> TOOLS[3. Create tools<br/>built-in + MCP + plugin]
+    CREDS --> TOOLS[3. Create tools<br/>built-in + MCP]
     TOOLS --> INIT[4. Initialize Copilot session<br/>model + tools + system message]
     INIT --> EXEC[5. Execute session<br/>capture output + reasoning]
     EXEC --> CLEAN[6. Cleanup<br/>kill MCP processes + rm temp dirs]
@@ -79,11 +78,6 @@ graph LR
     Register --> Use[Agent uses tools]
     Use --> Cleanup[Kill child process]
 ```
-
-### Plugin Tools
-
-Loaded from enabled plugin Git repositories:
-1. Clone plugin repos → parse `plugin.json` → load tool scripts → register as session tools
 
 ## Permission Handling
 

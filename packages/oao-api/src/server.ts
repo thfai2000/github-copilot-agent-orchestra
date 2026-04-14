@@ -8,6 +8,7 @@ import {
 } from '@oao/shared';
 import agentsRouter from './routes/agents.js';
 import authRouter from './routes/auth.js';
+import authProvidersRouter from './routes/auth-providers.js';
 import workflowsRouter from './routes/workflows.js';
 import executionsRouter from './routes/executions.js';
 import variablesRouter from './routes/variables.js';
@@ -15,7 +16,6 @@ import triggersRouter from './routes/triggers.js';
 import webhooks from './routes/webhooks.js';
 import supervisorRouter from './routes/supervisor.js';
 import mcpServersRouter from './routes/mcp-servers.js';
-import pluginsRouter from './routes/plugins.js';
 import adminRouter from './routes/admin.js';
 import quotaRouter from './routes/quota.js';
 import workspacesRouter from './routes/workspaces.js';
@@ -40,6 +40,7 @@ const app = createApp({
   ],
   routes: [
     ['/api/auth', authRouter],
+    ['/api/auth-providers', authProvidersRouter],
     ['/api/agents', agentsRouter],
     ['/api/workflows', workflowsRouter],
     ['/api/executions', executionsRouter],
@@ -48,7 +49,6 @@ const app = createApp({
     ['/api/webhooks', webhooks],
     ['/api/supervisor', supervisorRouter],
     ['/api/mcp-servers', mcpServersRouter],
-    ['/api/plugins', pluginsRouter],
     ['/api/admin', adminRouter],
     ['/api/quota', quotaRouter],
     ['/api/workspaces', workspacesRouter],

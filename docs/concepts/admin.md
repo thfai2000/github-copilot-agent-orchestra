@@ -1,6 +1,6 @@
 # Admin
 
-Workspace administrators have access to management features for models, users, quotas, and plugins.
+Workspace administrators have access to management features for models, users, quotas, and security.
 
 ## Admin Pages
 
@@ -8,8 +8,8 @@ Workspace administrators have access to management features for models, users, q
 |------|------|-------------|
 | Users | `/{workspace}/admin/users` | List, add, and manage user roles |
 | Models | `/{workspace}/admin/models` | Configure available AI models and credit costs |
+| Auth Providers | `/{workspace}/admin/auth-providers` | Configure authentication providers (Database, LDAP). See [Auth Providers](/concepts/auth-providers) |
 | Quotas | `/{workspace}/admin/quotas` | Set workspace and per-user credit limits |
-| Plugins | `/{workspace}/plugins` | Register and manage plugin repositories |
 | Security | `/{workspace}/admin/security` | Configure credential approval and view access logs. See [AI Security](/concepts/security) |
 | Workspaces | `/{workspace}/workspaces` | Manage workspaces (`super_admin` only) |
 

@@ -84,6 +84,7 @@ export default withMermaid(
           {
             text: 'Security & Access',
             items: [
+              { text: 'Auth Providers', link: '/concepts/auth-providers' },
               { text: 'AI Security', link: '/concepts/security' },
               { text: 'Copilot CLI Security', link: '/concepts/security-copilot-cli' },
               { text: 'RBAC', link: '/concepts/rbac' },
@@ -93,7 +94,6 @@ export default withMermaid(
             text: 'Platform',
             items: [
               { text: 'Workspaces', link: '/concepts/workspaces' },
-              { text: 'Plugins', link: '/concepts/plugins' },
               { text: 'Admin', link: '/concepts/admin' },
             ],
           },

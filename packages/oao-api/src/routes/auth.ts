@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import { eq } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../database/index.js';
-import { users, workspaces } from '../database/schema.js';
+import { users, workspaces, authProviders } from '../database/schema.js';
 import { createJwt, authMiddleware, emailSchema, passwordSchema } from '@oao/shared';
+import { authenticateLdap } from '../services/ldap-auth.js';
+import type { LdapConfig } from '../services/ldap-auth.js';
 
 const auth = new Hono();
 
@@ -41,15 +44,17 @@ auth.post('/register', async (c) => {
       email: body.email,
       passwordHash,
       name: body.name,
+      authProvider: 'database',
       workspaceId: workspace.id,
     })
-    .returning({ id: users.id, email: users.email, name: users.name, role: users.role, workspaceId: users.workspaceId });
+    .returning({ id: users.id, email: users.email, name: users.name, role: users.role, authProvider: users.authProvider, workspaceId: users.workspaceId });
 
   const token = await createJwt({
     userId: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
+    authProvider: user.authProvider,
     workspaceId: workspace.id,
     workspaceSlug: workspace.slug,
   });
@@ -62,15 +67,33 @@ auth.post('/register', async (c) => {
 const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1),
+  provider: z.enum(['database', 'ldap']).optional(), // optional — auto-detect if not specified
 });
 
 auth.post('/login', async (c) => {
   const body = loginSchema.parse(await c.req.json());
 
+  // Determine which provider to use
+  const requestedProvider = body.provider ?? 'database';
+
+  if (requestedProvider === 'ldap') {
+    return handleLdapLogin(c, body.email, body.password);
+  }
+
+  // Database login (default)
   const user = await db.query.users.findFirst({
     where: eq(users.email, body.email),
   });
   if (!user) {
+    return c.json({ error: 'Invalid credentials' }, 401);
+  }
+
+  // LDAP users cannot log in with database provider
+  if (user.authProvider === 'ldap') {
+    return c.json({ error: 'This account uses LDAP authentication. Please select LDAP provider.' }, 400);
+  }
+
+  if (!user.passwordHash) {
     return c.json({ error: 'Invalid credentials' }, 401);
   }
 
@@ -93,6 +116,7 @@ auth.post('/login', async (c) => {
     email: user.email,
     name: user.name,
     role: user.role,
+    authProvider: user.authProvider,
     workspaceId: user.workspaceId,
     workspaceSlug,
   });
@@ -102,11 +126,131 @@ auth.post('/login', async (c) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      authProvider: user.authProvider,
       workspaceId: user.workspaceId,
       workspaceSlug,
     },
     token,
   });
+});
+
+/** Handle LDAP login flow */
+async function handleLdapLogin(c: Context, email: string, password: string) {
+  // Find enabled LDAP providers — try each by priority (highest first)
+  const ldapProviders = await db.query.authProviders.findMany({
+    where: and(
+      eq(authProviders.providerType, 'ldap'),
+      eq(authProviders.isEnabled, true),
+    ),
+    orderBy: [desc(authProviders.priority)],
+  });
+
+  if (ldapProviders.length === 0) {
+    return c.json({ error: 'LDAP authentication is not configured' }, 400);
+  }
+
+  for (const provider of ldapProviders) {
+    const config = provider.config as unknown as LdapConfig;
+    if (!config.url || !config.bindDn || !config.searchBase || !config.searchFilter) {
+      continue; // skip misconfigured providers
+    }
+
+    try {
+      const ldapUser = await authenticateLdap(config, email, password);
+      if (!ldapUser) continue; // try next provider
+
+      // LDAP auth succeeded — find or create user in DB
+      let user = await db.query.users.findFirst({
+        where: eq(users.email, ldapUser.email),
+      });
+
+      const workspace = await db.query.workspaces.findFirst({
+        where: eq(workspaces.id, provider.workspaceId),
+      });
+      const workspaceSlug = workspace?.slug ?? 'default';
+
+      if (!user) {
+        // Auto-provision LDAP user
+        const [newUser] = await db
+          .insert(users)
+          .values({
+            email: ldapUser.email,
+            passwordHash: null,
+            name: ldapUser.name,
+            authProvider: 'ldap',
+            workspaceId: provider.workspaceId,
+          })
+          .returning({ id: users.id, email: users.email, name: users.name, role: users.role, authProvider: users.authProvider, workspaceId: users.workspaceId });
+        user = { ...newUser, passwordHash: null, createdAt: new Date(), updatedAt: new Date() };
+      } else if (user.authProvider !== 'ldap') {
+        // User exists with different provider — update to LDAP
+        await db.update(users).set({
+          authProvider: 'ldap',
+          name: ldapUser.name,
+          updatedAt: new Date(),
+        }).where(eq(users.id, user.id));
+        user = { ...user, authProvider: 'ldap' as const, name: ldapUser.name };
+      }
+
+      const token = await createJwt({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        authProvider: 'ldap',
+        workspaceId: user.workspaceId,
+        workspaceSlug,
+      });
+
+      return c.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          authProvider: 'ldap',
+          workspaceId: user.workspaceId,
+          workspaceSlug,
+        },
+        token,
+      });
+    } catch {
+      // LDAP error — try next provider
+      continue;
+    }
+  }
+
+  return c.json({ error: 'Invalid credentials' }, 401);
+}
+
+// ── Get available auth providers for a workspace (public, no auth required) ──
+
+auth.get('/providers', async (c) => {
+  const slug = c.req.query('workspace') || 'default';
+
+  const workspace = await db.query.workspaces.findFirst({
+    where: eq(workspaces.slug, slug),
+  });
+
+  // Always include database provider
+  const providers: Array<{ type: string; name: string }> = [
+    { type: 'database', name: 'Email & Password' },
+  ];
+
+  if (workspace) {
+    const configured = await db.query.authProviders.findMany({
+      where: and(
+        eq(authProviders.workspaceId, workspace.id),
+        eq(authProviders.isEnabled, true),
+      ),
+    });
+
+    for (const p of configured) {
+      providers.push({ type: p.providerType, name: p.name });
+    }
+  }
+
+  return c.json({ providers });
 });
 
 auth.get('/me', authMiddleware, async (c) => {
@@ -130,6 +274,7 @@ auth.get('/me', authMiddleware, async (c) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      authProvider: user.authProvider,
       workspaceId: user.workspaceId,
       workspaceSlug,
     },
@@ -149,6 +294,15 @@ auth.put('/change-password', authMiddleware, async (c) => {
     where: eq(users.id, userId),
   });
   if (!user) return c.json({ error: 'User not found' }, 404);
+
+  // LDAP users cannot change password via OAO
+  if (user.authProvider === 'ldap') {
+    return c.json({ error: 'Password changes are managed by your LDAP directory' }, 400);
+  }
+
+  if (!user.passwordHash) {
+    return c.json({ error: 'No password set for this account' }, 400);
+  }
 
   const valid = await bcrypt.compare(body.currentPassword, user.passwordHash);
   if (!valid) {

@@ -100,7 +100,7 @@ The dashboard for managing the platform:
 
 - Agent configuration, workflow design, execution monitoring
 - Agent instance monitoring (Static + Ephemeral)
-- Variable management, plugin management, admin controls
+- Variable management, admin controls
 - JWT auth with middleware guards; all `/api/*` proxied to OAO-API
 
 ### OAO-Controller

@@ -64,8 +64,6 @@ function buildChainableMock() {
       models: { findFirst: mockFindFirst, findMany: mockFindMany },
       workspaceQuotaSettings: { findFirst: mockFindFirst },
       creditUsage: { findFirst: mockFindFirst, findMany: mockFindMany },
-      plugins: { findFirst: mockFindFirst, findMany: mockFindMany },
-      agentPlugins: { findFirst: mockFindFirst, findMany: mockFindMany },
     },
     select: vi.fn().mockImplementation(() => createSelectChain([])),
     insert: mockInsert,

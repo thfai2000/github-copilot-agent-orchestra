@@ -1,6 +1,6 @@
 # Support Tables
 
-Variables, Admin & Quota, Plugins, Audit & Memory, and Auth & Token tables. For the ER diagram and enums, see [Schema Overview](/database/schema).
+Variables, Admin & Quota, Audit & Memory, and Auth & Token tables. For the ER diagram and enums, see [Schema Overview](/database/schema).
 
 ## Variable Tables
 
@@ -98,35 +98,6 @@ All variable tables share the same structure: `key` (UPPER_SNAKE_CASE), `valueEn
 | createdAt | timestamp | |
 | | | UNIQUE(userId, modelName, date) |
 
-## Plugin Tables
-
-### plugins
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| workspaceId | UUID FK → workspaces | |
-| name | varchar(100) | |
-| description | text | |
-| gitRepoUrl | varchar(500) | |
-| gitBranch | varchar(100) | Default: `main` |
-| githubTokenEncrypted | text | AES-256-GCM |
-| manifestCache | jsonb | Cached plugin.json |
-| isAllowed | boolean | Admin toggle |
-| createdBy | UUID FK → users | |
-| createdAt, updatedAt | timestamp | |
-
-### agent_plugins
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| agentId | UUID FK → agents | |
-| pluginId | UUID FK → plugins | |
-| isEnabled | boolean | Default: true |
-| createdAt | timestamp | |
-| | | UNIQUE(agentId, pluginId) |
-
 ## Audit & Memory Tables
 
 ### system_events
@@ -199,6 +170,22 @@ Tracks running agent instances (both static and ephemeral).
 | createdAt | timestamp | |
 
 ## Auth & Token Tables
+
+### auth_providers
+
+Workspace-scoped authentication provider configurations. See [Auth Providers](/concepts/auth-providers).
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| workspaceId | UUID FK → workspaces | |
+| providerType | auth_provider_type | `database` or `ldap` |
+| name | varchar(100) | Display name |
+| isEnabled | boolean | Default: true |
+| priority | integer | Lower = higher priority (default: 0) |
+| config | jsonb | Provider-specific settings (LDAP URL, bind DN, etc.) |
+| createdAt, updatedAt | timestamp | |
+| | | UNIQUE(workspaceId, providerType, name) |
 
 ### personal_access_tokens
 

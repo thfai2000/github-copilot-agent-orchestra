@@ -60,11 +60,23 @@ async function executeStep(stepExecutionId: string, executionId: string): Promis
   });
   if (!stepExec) throw new Error(`Step execution ${stepExecutionId} not found`);
 
+  // Guard: skip if the step was already marked failed/cancelled (e.g. parent timed out)
+  if (stepExec.status === 'failed' || stepExec.status === 'completed') {
+    logger.warn({ stepExecutionId, status: stepExec.status }, 'Step already finished, skipping orphaned job');
+    return;
+  }
+
   // 2. Load parent workflow execution
   const execution = await db.query.workflowExecutions.findFirst({
     where: eq(workflowExecutions.id, executionId),
   });
   if (!execution) throw new Error(`Execution ${executionId} not found`);
+
+  // Guard: skip if parent execution is already done (timeout, cancel, etc.)
+  if (execution.status === 'failed' || execution.status === 'completed' || execution.status === 'cancelled') {
+    logger.warn({ executionId, status: execution.status }, 'Parent execution already finished, skipping orphaned step job');
+    return;
+  }
 
   // 3. Load workflow
   const workflow = await db.query.workflows.findFirst({
@@ -139,7 +151,7 @@ async function executeStep(stepExecutionId: string, executionId: string): Promis
     }
   }
 
-  // 8. Mark step as running
+  // 8. Mark step as running (store raw template initially; will be updated with rendered prompt after session)
   await db
     .update(stepExecutions)
     .set({ status: 'running', resolvedPrompt: step.promptTemplate, startedAt: new Date() })
@@ -175,11 +187,12 @@ async function executeStep(stepExecutionId: string, executionId: string): Promis
     onProgress,
   });
 
-  // 10. Write success result to DB
+  // 10. Write success result to DB (including the actual rendered prompt)
   await db
     .update(stepExecutions)
     .set({
       status: 'completed',
+      resolvedPrompt: result.resolvedPrompt,
       output: result.output,
       reasoningTrace: result.reasoningTrace,
       completedAt: new Date(),

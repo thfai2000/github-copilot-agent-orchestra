@@ -1,6 +1,6 @@
 # Workspaces
 
-A **workspace** is a tenant isolation boundary. All resources (agents, workflows, variables, executions, plugins, models) are scoped to a workspace.
+A **workspace** is a tenant isolation boundary. All resources (agents, workflows, variables, executions, models) are scoped to a workspace.
 
 ## How Workspaces Work
 

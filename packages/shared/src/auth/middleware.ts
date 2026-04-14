@@ -53,6 +53,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
       email: result.email,
       name: result.name,
       role: result.role,
+      authProvider: result.authProvider ?? 'database',
       workspaceId: result.workspaceId,
       workspaceSlug: result.workspaceSlug,
     });
@@ -69,6 +70,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
       email: payload.email,
       name: payload.name,
       role: payload.role,
+      authProvider: payload.authProvider ?? 'database',
       workspaceId: payload.workspaceId ?? null,
       workspaceSlug: payload.workspaceSlug ?? null,
     });

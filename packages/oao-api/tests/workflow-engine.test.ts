@@ -105,14 +105,6 @@ vi.mock('../src/services/mcp-client.js', () => ({
   }),
 }));
 
-// ─── Mock plugin-loader ─────────────────────────────────────────────
-vi.mock('../src/services/plugin-loader.js', () => ({
-  loadAgentPlugins: vi.fn().mockResolvedValue([]),
-  readPluginSkills: vi.fn().mockResolvedValue([]),
-  getPluginMcpServers: vi.fn().mockReturnValue([]),
-  getPluginToolDefs: vi.fn().mockReturnValue([]),
-}));
-
 // ─── Mock k8s-provisioner ───────────────────────────────────────────
 const mockCreateAgentPod = vi.fn().mockResolvedValue('oao-agent-step-001');
 const mockWaitForPodCompletion = vi.fn().mockResolvedValue('Succeeded');

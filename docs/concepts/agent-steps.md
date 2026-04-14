@@ -14,7 +14,7 @@ graph TB
     LOCK --> SESSION[6. Create Copilot session<br/>agent + skills + tools + MCP]
     SESSION --> SEND[7. Send prompt + wait for response]
     SEND --> WRITE[8. Write output + reasoning trace]
-    WRITE --> CLEANUP[9. Cleanup: MCP, plugins,<br/>workspace, lock]
+    WRITE --> CLEANUP[9. Cleanup: MCP,<br/>workspace, lock]
 
     style START fill:#FF9800,color:#fff
     style SESSION fill:#9C27B0,color:#fff
@@ -137,8 +137,7 @@ The session is created with the GitHub Copilot SDK (`@github/copilot-sdk`):
 The system message is assembled from:
 1. **Agent markdown** — the main personality/instructions file
 2. **Skills** — additional markdown files appended under `## Agent Skills`
-3. **Plugin skills** — skills from enabled plugins appended under `## Plugin Skills`
-4. **Guidelines** — OAO appends autonomous-agent guidelines (explain reasoning, follow instructions)
+3. **Guidelines** — OAO appends autonomous-agent guidelines (explain reasoning, follow instructions)
 
 ### Tools
 
@@ -149,8 +148,6 @@ Tools are loaded in order and merged into a single array:
 | **Built-in tools** (10 tools) | `schedule_next_workflow_execution`, `manage_webhook_trigger`, `record_decision`, `memory_store`, `memory_retrieve`, `edit_workflow`, `read_variables`, `edit_variables`, `simple_http_request` — filtered by `builtinToolsEnabled` |
 | **MCP servers (DB-configured)** | Per-agent MCP server configs from `mcp_server_configs` table. Env vars resolved from credentials via `envMapping`. |
 | **MCP servers (JSON template)** | Agent's `mcpJsonTemplate` field rendered with Jinja2, parsed as JSON, and each server spawned. |
-| **Plugin MCP servers** | MCP servers defined in enabled plugin manifests. |
-| **Plugin tool scripts** | JavaScript tool scripts from plugin repos, wrapped as Copilot SDK tools. |
 
 ### Model Resolution
 
@@ -191,8 +188,7 @@ After the session completes, the worker writes:
 After execution (success or failure), the worker cleans up:
 
 1. **MCP server processes** — all spawned MCP servers are terminated
-2. **Plugin resources** — plugin cleanup hooks invoked
-3. **Agent workspace** — temporary Git clone directory deleted
-4. **Session lock** — Redis lock released (Lua compare-and-delete)
+2. **Agent workspace** — temporary Git clone directory deleted
+3. **Session lock** — Redis lock released (Lua compare-and-delete)
 
 The worker then returns to idle and picks up the next step from the BullMQ queue.

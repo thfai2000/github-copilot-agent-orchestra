@@ -68,11 +68,11 @@ oao-api/
 │   ├── routes/
 │   │   ├── admin.ts      # User/model/quota/security management
 │   │   ├── agents.ts     # Agent CRUD
-│   │   ├── auth.ts       # Register, login, me
+│   │   ├── auth.ts       # Register, login, me, change-password, providers
+│   │   ├── auth-providers.ts # Auth provider CRUD (admin)
 │   │   ├── executions.ts # View/cancel/retry executions
 │   │   ├── events.ts     # System event log
 │   │   ├── mcp-servers.ts # MCP server config CRUD
-│   │   ├── plugins.ts    # Plugin management
 │   │   ├── quota.ts      # Quota stats
 │   │   ├── supervisor.ts # Emergency stop/resume
 │   │   ├── triggers.ts   # Trigger CRUD
@@ -83,12 +83,12 @@ oao-api/
 │   │   └── agent-files.ts # DB-stored agent file management
 │   ├── services/
 │   │   ├── workflow-engine.ts  # Core: enqueue, execute, retry, agent provisioning
+│   │   ├── ldap-auth.ts       # LDAP authentication (ldapts client)
 │   │   ├── k8s-provisioner.ts # K8s agent instance lifecycle (ephemeral mode)
 │   │   ├── agent-instance-registry.ts # Agent instance tracking & heartbeat
 │   │   ├── agent-tools.ts     # 9 built-in tools (defineTool)
 │   │   ├── agent-workspace.ts # Git clone + skill loading
 │   │   ├── mcp-client.ts      # MCP server spawn + tool registration
-│   │   ├── plugin-loader.ts   # Plugin repo clone + manifest parsing
 │   │   ├── system-events.ts   # Event emission + audit trail
 │   │   ├── embedding-service.ts # pgvector embeddings
 │   │   └── redis.ts           # Redis connection, BullMQ queue factory
@@ -126,7 +126,6 @@ oao-ui/
 │       ├── workflows.vue # Workflow builder
 │       ├── executions.vue # Execution history
 │       ├── variables.vue # Variable management
-│       ├── plugins.vue   # Plugin registry
 │       ├── workspaces.vue # Workspace management (super_admin)
 │       └── admin/
 │           ├── users.vue     # User role management
