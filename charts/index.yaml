@@ -10,10 +10,10 @@ entries:
           url: https://github.com/thfai2000/open-agent-orchestra
     apiVersion: v2
     appVersion: 1.6.0
-    created: "2026-04-14T00:57:41.186711206Z"
+    created: "2026-04-14T16:14:30.871808758Z"
     description: Open Agent Orchestra (OAO) — Autonomous AI workflow engine (API +
       UI + PostgreSQL)
-    digest: 4ed59ba27b3f11d5c10b98d653b0b50a5b28bf974d3b4550b9f6c119fb12b39b
+    digest: 4c15bbc3cbf4f07fb84b077dacf7e7cfe888669ef3980e8aea4558a212489199
     home: https://github.com/thfai2000/open-agent-orchestra
     keywords:
     - ai
@@ -31,4 +31,4 @@ entries:
     urls:
     - https://thfai2000.github.io/open-agent-orchestra/charts/oao-platform-1.6.0.tgz
     version: 1.6.0
-generated: "2026-04-14T00:57:41.186252765Z"
+generated: "2026-04-14T16:14:30.871356148Z"
