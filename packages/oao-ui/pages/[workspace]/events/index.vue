@@ -36,7 +36,15 @@
               <option value="user">User</option>
             </select>
           </div>
-          <Button variant="outline" size="sm" @click="filterName = ''; filterScope = ''">Clear Filters</Button>
+          <div class="space-y-1">
+            <Label class="text-xs">From</Label>
+            <Input v-model="filterFrom" type="datetime-local" class="w-48" />
+          </div>
+          <div class="space-y-1">
+            <Label class="text-xs">To</Label>
+            <Input v-model="filterTo" type="datetime-local" class="w-48" />
+          </div>
+          <Button variant="outline" size="sm" @click="clearFilters">Clear Filters</Button>
         </div>
       </CardContent>
     </Card>
@@ -82,7 +90,7 @@
 
         <!-- Pagination -->
         <div v-if="totalPages > 1" class="flex items-center justify-between mt-4 pt-4 border-t">
-          <span class="text-xs text-muted-foreground">Page {{ page }} of {{ totalPages }}</span>
+          <span class="text-xs text-muted-foreground">Page {{ page }} of {{ totalPages }} ({{ (eventsData as any)?.total ?? 0 }} events)</span>
           <div class="flex gap-2">
             <Button variant="outline" size="sm" :disabled="page <= 1" @click="page--">Previous</Button>
             <Button variant="outline" size="sm" :disabled="page >= totalPages" @click="page++">Next</Button>
@@ -99,6 +107,8 @@ const headers = authHeaders();
 
 const filterName = ref('');
 const filterScope = ref('');
+const filterFrom = ref('');
+const filterTo = ref('');
 const page = ref(1);
 const limit = 50;
 
@@ -108,6 +118,8 @@ const queryParams = computed(() => {
   params.set('limit', String(limit));
   if (filterName.value) params.set('eventName', filterName.value);
   if (filterScope.value) params.set('eventScope', filterScope.value);
+  if (filterFrom.value) params.set('from', new Date(filterFrom.value).toISOString());
+  if (filterTo.value) params.set('to', new Date(filterTo.value).toISOString());
   return params.toString();
 });
 
@@ -126,7 +138,14 @@ const totalPages = computed(() => {
 const eventNames = computed(() => namesData.value?.eventNames ?? []);
 
 // Reset page when filters change
-watch([filterName, filterScope], () => { page.value = 1; });
+watch([filterName, filterScope, filterFrom, filterTo], () => { page.value = 1; });
+
+function clearFilters() {
+  filterName.value = '';
+  filterScope.value = '';
+  filterFrom.value = '';
+  filterTo.value = '';
+}
 
 function formatEventData(data: any): string {
   if (!data) return '—';

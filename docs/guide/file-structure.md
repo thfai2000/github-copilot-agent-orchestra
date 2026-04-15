@@ -72,7 +72,6 @@ oao-api/
 │   │   ├── auth-providers.ts # Auth provider CRUD (admin)
 │   │   ├── executions.ts # View/cancel/retry executions
 │   │   ├── events.ts     # System event log
-│   │   ├── mcp-servers.ts # MCP server config CRUD
 │   │   ├── quota.ts      # Quota stats
 │   │   ├── supervisor.ts # Emergency stop/resume
 │   │   ├── triggers.ts   # Trigger CRUD

@@ -104,6 +104,17 @@ build-and-deploy-doc.sh  # Build & deploy VitePress docs to GitHub Pages
 - Tailwind utility classes, no custom CSS unless unavoidable
 - shadcn-vue components where available
 
+### UI Design Principles (MUST FOLLOW)
+- **In-page CRUD** — Never use Dialog popups for create/edit forms. Use in-page forms with breadcrumb navigation (e.g. "Agents > Create Agent"). Only use Dialogs for small confirmations (delete) or quick single-field edits (role change).
+- **Breadcrumbs** — Every page has a Breadcrumb at the top. Use dynamic breadcrumbs that change based on mode (list vs form). Home link uses `/${ws}`.
+- **Badges under title** — Status/scope/type badges go below the entity title (not inline beside it). Wrap with `flex-wrap items-center gap-1.5 mt-1`.
+- **Card/Table view toggle** — Primary entity listing pages (Agents, Workflows) offer two display modes via a toggle button group: Cards and Table. Default to Cards.
+- **Pagination on all lists** — Every listing page uses paginated API (`?page=${page}&limit=${limit}`). Show "Page X of Y (Z items)" and Previous/Next buttons when totalPages > 1.
+- **Consistent page header** — `<h1 class="text-3xl font-bold">` + `<p class="text-muted-foreground text-sm mt-1">` subtitle. Action buttons (+ Create) on the right.
+- **Date display** — Use `toLocaleDateString()` for dates, `toLocaleString()` for timestamps.
+- **Empty states** — Centered muted text with guidance (e.g. "No agents yet. Click Create Agent to get started.").
+- **Auth headers** — Call `authHeaders()` once at setup: `const headers = authHeaders()`, reuse the variable.
+
 ## Copilot SDK (`@github/copilot-sdk`)
 - **Package**: `npm install @github/copilot-sdk`
 - **Client**: `new CopilotClient()` → `client.createSession({ model, tools, systemMessage, onPermissionRequest })`

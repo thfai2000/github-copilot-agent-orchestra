@@ -15,6 +15,7 @@ import {
   models,
 } from '../database/schema.js';
 import { createLogger } from '@oao/shared';
+import { decrypt } from '@oao/shared';
 import { getRedisConnection } from './redis.js';
 import { CopilotClient, approveAll } from '@github/copilot-sdk';
 import { prepareAgentWorkspace, prepareDbAgentWorkspace } from './agent-workspace.js';
@@ -635,6 +636,26 @@ export async function executeCopilotSession(params: {
     }
   }
 
+  // Resolve Copilot CLI token: per-agent override for GITHUB_TOKEN used by CopilotClient
+  let copilotTokenOverride: string | null = null;
+  if (agent.copilotTokenCredentialId) {
+    const copilotCredId = agent.copilotTokenCredentialId;
+    const userCopilotCred = await db.query.userVariables.findFirst({
+      where: and(eq(userVariables.id, copilotCredId), eq(userVariables.userId, userId)),
+    });
+    if (userCopilotCred) {
+      copilotTokenOverride = decrypt(userCopilotCred.valueEncrypted);
+    } else if (workspaceId) {
+      const wsCopilotCred = await db.query.workspaceVariables.findFirst({
+        where: and(eq(workspaceVariables.id, copilotCredId), eq(workspaceVariables.workspaceId, workspaceId)),
+      });
+      if (wsCopilotCred) copilotTokenOverride = decrypt(wsCopilotCred.valueEncrypted);
+    }
+    if (copilotTokenOverride) {
+      logger.info({ agentId: agent.id }, 'Using per-agent Copilot token override');
+    }
+  }
+
   const workspace = agent.sourceType === 'database'
     ? await prepareDbAgentWorkspace(agent.id)
     : await prepareAgentWorkspace({
@@ -648,6 +669,7 @@ export async function executeCopilotSession(params: {
 
   const toolCalls: Array<{ tool: string; args: unknown }> = [];
   const mcpCleanups: Array<() => Promise<void>> = [];
+  const originalGithubToken = process.env.GITHUB_TOKEN;
 
   try {
     // 1.5 Write .env file with variables marked for env injection
@@ -739,6 +761,9 @@ export async function executeCopilotSession(params: {
     const tools = allTools;
 
     // 4. Initialize Copilot client + session
+    if (copilotTokenOverride) {
+      process.env.GITHUB_TOKEN = copilotTokenOverride;
+    }
     const client = new CopilotClient();
 
     // Use step-level model if specified, else workflow default, else env default
@@ -900,6 +925,14 @@ export async function executeCopilotSession(params: {
     };
   } finally {
     clearInterval(lockExtendTimer);
+    // Restore original GITHUB_TOKEN if it was overridden
+    if (copilotTokenOverride) {
+      if (originalGithubToken !== undefined) {
+        process.env.GITHUB_TOKEN = originalGithubToken;
+      } else {
+        delete process.env.GITHUB_TOKEN;
+      }
+    }
     for (const cleanup of mcpCleanups) {
       try { await cleanup(); } catch { /* ignore */ }
     }

@@ -24,6 +24,7 @@ variablesRouter.get('/', async (c) => {
         workspaceId: true,
         key: true,
         variableType: true,
+        credentialSubType: true,
         injectAsEnvVariable: true,
         description: true,
         createdAt: true,
@@ -41,6 +42,7 @@ variablesRouter.get('/', async (c) => {
         userId: true,
         key: true,
         variableType: true,
+        credentialSubType: true,
         injectAsEnvVariable: true,
         description: true,
         createdAt: true,
@@ -64,6 +66,7 @@ variablesRouter.get('/', async (c) => {
       agentId: true,
       key: true,
       variableType: true,
+      credentialSubType: true,
       injectAsEnvVariable: true,
       description: true,
       createdAt: true,
@@ -83,8 +86,9 @@ const createVariableSchema = z.object({
     .min(1)
     .max(100)
     .regex(/^[A-Z_][A-Z0-9_]*$/, 'Key must be uppercase with underscores'),
-  value: z.string().min(1).max(5000),
+  value: z.string().min(1).max(50000),
   variableType: z.enum(['property', 'credential']).default('credential'),
+  credentialSubType: z.enum(['secret_text', 'github_token', 'github_app', 'user_account', 'private_key', 'certificate']).default('secret_text'),
   injectAsEnvVariable: z.boolean().default(false),
   description: z.string().max(300).optional(),
 });
@@ -107,6 +111,7 @@ variablesRouter.post('/', async (c) => {
         key: body.key,
         valueEncrypted: encrypt(body.value),
         variableType: body.variableType,
+        credentialSubType: body.variableType === 'credential' ? body.credentialSubType : 'secret_text',
         injectAsEnvVariable: body.injectAsEnvVariable,
         description: body.description,
       })
@@ -115,6 +120,7 @@ variablesRouter.post('/', async (c) => {
         set: {
           valueEncrypted: encrypt(body.value),
           variableType: body.variableType,
+          credentialSubType: body.variableType === 'credential' ? body.credentialSubType : 'secret_text',
           injectAsEnvVariable: body.injectAsEnvVariable,
           description: body.description,
           updatedAt: new Date(),
@@ -125,6 +131,7 @@ variablesRouter.post('/', async (c) => {
         workspaceId: workspaceVariables.workspaceId,
         key: workspaceVariables.key,
         variableType: workspaceVariables.variableType,
+        credentialSubType: workspaceVariables.credentialSubType,
         injectAsEnvVariable: workspaceVariables.injectAsEnvVariable,
         description: workspaceVariables.description,
         createdAt: workspaceVariables.createdAt,
@@ -146,6 +153,7 @@ variablesRouter.post('/', async (c) => {
         key: body.key,
         valueEncrypted: encrypt(body.value),
         variableType: body.variableType,
+        credentialSubType: body.variableType === 'credential' ? body.credentialSubType : 'secret_text',
         injectAsEnvVariable: body.injectAsEnvVariable,
         description: body.description,
       })
@@ -154,6 +162,7 @@ variablesRouter.post('/', async (c) => {
         set: {
           valueEncrypted: encrypt(body.value),
           variableType: body.variableType,
+          credentialSubType: body.variableType === 'credential' ? body.credentialSubType : 'secret_text',
           injectAsEnvVariable: body.injectAsEnvVariable,
           description: body.description,
           updatedAt: new Date(),
@@ -164,6 +173,7 @@ variablesRouter.post('/', async (c) => {
         agentId: agentVariables.agentId,
         key: agentVariables.key,
         variableType: agentVariables.variableType,
+        credentialSubType: agentVariables.credentialSubType,
         injectAsEnvVariable: agentVariables.injectAsEnvVariable,
         description: agentVariables.description,
         createdAt: agentVariables.createdAt,
@@ -178,6 +188,7 @@ variablesRouter.post('/', async (c) => {
         key: body.key,
         valueEncrypted: encrypt(body.value),
         variableType: body.variableType,
+        credentialSubType: body.variableType === 'credential' ? body.credentialSubType : 'secret_text',
         injectAsEnvVariable: body.injectAsEnvVariable,
         description: body.description,
       })
@@ -186,6 +197,7 @@ variablesRouter.post('/', async (c) => {
         set: {
           valueEncrypted: encrypt(body.value),
           variableType: body.variableType,
+          credentialSubType: body.variableType === 'credential' ? body.credentialSubType : 'secret_text',
           injectAsEnvVariable: body.injectAsEnvVariable,
           description: body.description,
           updatedAt: new Date(),
@@ -196,6 +208,7 @@ variablesRouter.post('/', async (c) => {
         userId: userVariables.userId,
         key: userVariables.key,
         variableType: userVariables.variableType,
+        credentialSubType: userVariables.credentialSubType,
         injectAsEnvVariable: userVariables.injectAsEnvVariable,
         description: userVariables.description,
         createdAt: userVariables.createdAt,
@@ -207,8 +220,9 @@ variablesRouter.post('/', async (c) => {
 
 // PUT /:id — update variable (agent, user, or workspace)
 const updateVariableSchema = z.object({
-  value: z.string().min(1).max(5000).optional(),
+  value: z.string().min(1).max(50000).optional(),
   variableType: z.enum(['property', 'credential']).optional(),
+  credentialSubType: z.enum(['secret_text', 'github_token', 'github_app', 'user_account', 'private_key', 'certificate']).optional(),
   injectAsEnvVariable: z.boolean().optional(),
   description: z.string().max(300).optional(),
   scope: z.enum(['agent', 'user', 'workspace']).default('agent'),
@@ -223,6 +237,7 @@ variablesRouter.put('/:id', async (c) => {
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (body.value) updateData.valueEncrypted = encrypt(body.value);
   if (body.variableType !== undefined) updateData.variableType = body.variableType;
+  if (body.credentialSubType !== undefined) updateData.credentialSubType = body.credentialSubType;
   if (body.injectAsEnvVariable !== undefined) updateData.injectAsEnvVariable = body.injectAsEnvVariable;
   if (body.description !== undefined) updateData.description = body.description;
 

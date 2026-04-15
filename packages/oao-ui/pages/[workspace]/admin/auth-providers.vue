@@ -2,182 +2,191 @@
   <div>
     <Breadcrumb>
       <BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink href="/">Home</BreadcrumbLink></BreadcrumbItem>
+        <BreadcrumbItem><BreadcrumbLink :href="`/${ws}`">Home</BreadcrumbLink></BreadcrumbItem>
         <BreadcrumbSeparator />
-        <BreadcrumbItem><BreadcrumbPage>Auth Providers</BreadcrumbPage></BreadcrumbItem>
+        <BreadcrumbItem v-if="mode === 'list'"><BreadcrumbPage>Auth Providers</BreadcrumbPage></BreadcrumbItem>
+        <template v-else>
+          <BreadcrumbItem><BreadcrumbLink href="#" @click.prevent="mode = 'list'">Auth Providers</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem><BreadcrumbPage>{{ editing ? `Edit: ${editing.name}` : 'Add Provider' }}</BreadcrumbPage></BreadcrumbItem>
+        </template>
       </BreadcrumbList>
     </Breadcrumb>
 
-    <div class="flex items-center justify-between mt-4 mb-6">
-      <h1 class="text-3xl font-bold">Authentication Providers</h1>
-      <Button @click="openAddDialog">+ Add Provider</Button>
-    </div>
+    <!-- Add / Edit Form (in-page) -->
+    <template v-if="mode === 'form'">
+      <div class="mt-4 mb-6">
+        <h1 class="text-3xl font-bold">{{ editing ? 'Edit' : 'Add' }} Auth Provider</h1>
+        <p class="text-muted-foreground text-sm mt-1">{{ editing ? 'Update the provider configuration.' : 'Configure a new authentication provider.' }}</p>
+      </div>
+      <Card class="max-w-2xl">
+        <CardContent class="pt-6">
+          <div v-if="formError" class="p-2 rounded-md bg-destructive/10 text-destructive text-sm mb-4">{{ formError }}</div>
+          <form @submit.prevent="handleSave" class="space-y-4">
+            <div class="space-y-1.5">
+              <Label>Provider Type *</Label>
+              <select v-model="form.providerType" :disabled="!!editing"
+                class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                <option value="database">Database (Username & Password)</option>
+                <option value="ldap">LDAP / Active Directory</option>
+              </select>
+            </div>
+            <div class="space-y-1.5">
+              <Label>Name *</Label>
+              <Input v-model="form.name" required placeholder="e.g. Corporate LDAP" />
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="checkbox" id="isEnabled" v-model="form.isEnabled"
+                class="w-4 h-4 rounded border-input" />
+              <Label for="isEnabled">Enabled</Label>
+            </div>
+            <div class="space-y-1.5">
+              <Label>Priority</Label>
+              <Input v-model.number="form.priority" type="number" min="0" max="100" placeholder="0 (lower = higher priority)" />
+            </div>
 
-    <!-- Add / Edit Provider Dialog -->
-    <Dialog v-model:open="showDialog">
-      <DialogContent class="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{{ editing ? 'Edit' : 'Add' }} Auth Provider</DialogTitle>
-          <DialogDescription>{{ editing ? 'Update the provider configuration.' : 'Configure a new authentication provider.' }}</DialogDescription>
-        </DialogHeader>
-        <div v-if="formError" class="p-2 rounded-md bg-destructive/10 text-destructive text-sm">{{ formError }}</div>
-        <form @submit.prevent="handleSave" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-          <div class="space-y-1.5">
-            <Label>Provider Type *</Label>
-            <select v-model="form.providerType" :disabled="!!editing"
-              class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-              <option value="database">Database (Username & Password)</option>
-              <option value="ldap">LDAP / Active Directory</option>
-            </select>
-          </div>
-          <div class="space-y-1.5">
-            <Label>Name *</Label>
-            <Input v-model="form.name" required placeholder="e.g. Corporate LDAP" />
-          </div>
-          <div class="flex items-center gap-2">
-            <input type="checkbox" id="isEnabled" v-model="form.isEnabled"
-              class="w-4 h-4 rounded border-input" />
-            <Label for="isEnabled">Enabled</Label>
-          </div>
-          <div class="space-y-1.5">
-            <Label>Priority</Label>
-            <Input v-model.number="form.priority" type="number" min="0" max="100" placeholder="0 (lower = higher priority)" />
-          </div>
-
-          <!-- LDAP-specific config -->
-          <template v-if="form.providerType === 'ldap'">
-            <div class="border-t pt-3 mt-3">
-              <p class="text-sm font-medium mb-3 text-muted-foreground">LDAP Configuration</p>
-            </div>
-            <div class="space-y-1.5">
-              <Label>Server URL *</Label>
-              <Input v-model="form.config.url" required placeholder="ldap://ldap.example.com:389" />
-            </div>
-            <div class="space-y-1.5">
-              <Label>Bind DN *</Label>
-              <Input v-model="form.config.bindDn" required placeholder="cn=admin,dc=example,dc=com" />
-            </div>
-            <div class="space-y-1.5">
-              <Label>Bind Password {{ editing ? '(leave blank to keep existing)' : '*' }}</Label>
-              <Input v-model="form.config.bindCredential" type="password" :required="!editing" placeholder="Service account password" />
-            </div>
-            <div class="space-y-1.5">
-              <Label>Search Base *</Label>
-              <Input v-model="form.config.searchBase" required placeholder="ou=users,dc=example,dc=com" />
-            </div>
-            <div class="space-y-1.5">
-              <Label>Search Filter</Label>
-              <Input v-model="form.config.searchFilter" placeholder="(uid={{username}})" />
-              <p class="text-xs text-muted-foreground">Use <code v-pre>{{username}}</code> as placeholder. Default: <code v-pre>(uid={{username}})</code></p>
-            </div>
-            <div class="grid grid-cols-3 gap-2">
-              <div class="space-y-1.5">
-                <Label>Username Attr</Label>
-                <Input v-model="form.config.usernameAttribute" placeholder="uid" />
+            <!-- LDAP-specific config -->
+            <template v-if="form.providerType === 'ldap'">
+              <div class="border-t pt-4 mt-4">
+                <p class="text-sm font-medium mb-3 text-muted-foreground">LDAP Configuration</p>
               </div>
               <div class="space-y-1.5">
-                <Label>Email Attr</Label>
-                <Input v-model="form.config.emailAttribute" placeholder="mail" />
+                <Label>Server URL *</Label>
+                <Input v-model="form.config.url" required placeholder="ldap://ldap.example.com:389" />
               </div>
               <div class="space-y-1.5">
-                <Label>Name Attr</Label>
-                <Input v-model="form.config.nameAttribute" placeholder="cn" />
+                <Label>Bind DN *</Label>
+                <Input v-model="form.config.bindDn" required placeholder="cn=admin,dc=example,dc=com" />
               </div>
-            </div>
-            <div class="flex items-center gap-4 pt-1">
-              <div class="flex items-center gap-2">
-                <input type="checkbox" id="startTls" v-model="form.config.startTls" class="w-4 h-4 rounded border-input" />
-                <Label for="startTls">Start TLS</Label>
+              <div class="space-y-1.5">
+                <Label>Bind Password {{ editing ? '(leave blank to keep existing)' : '*' }}</Label>
+                <Input v-model="form.config.bindCredential" type="password" :required="!editing" placeholder="Service account password" />
               </div>
-              <div class="flex items-center gap-2">
-                <input type="checkbox" id="tlsReject" v-model="form.config.tlsRejectUnauthorized" class="w-4 h-4 rounded border-input" />
-                <Label for="tlsReject">Verify TLS Certificates</Label>
+              <div class="space-y-1.5">
+                <Label>Search Base *</Label>
+                <Input v-model="form.config.searchBase" required placeholder="ou=users,dc=example,dc=com" />
               </div>
-            </div>
-          </template>
+              <div class="space-y-1.5">
+                <Label>Search Filter</Label>
+                <Input v-model="form.config.searchFilter" placeholder="(uid={{username}})" />
+                <p class="text-xs text-muted-foreground">Use <code v-pre>{{username}}</code> as placeholder. Default: <code v-pre>(uid={{username}})</code></p>
+              </div>
+              <div class="grid grid-cols-3 gap-2">
+                <div class="space-y-1.5">
+                  <Label>Username Attr</Label>
+                  <Input v-model="form.config.usernameAttribute" placeholder="uid" />
+                </div>
+                <div class="space-y-1.5">
+                  <Label>Email Attr</Label>
+                  <Input v-model="form.config.emailAttribute" placeholder="mail" />
+                </div>
+                <div class="space-y-1.5">
+                  <Label>Name Attr</Label>
+                  <Input v-model="form.config.nameAttribute" placeholder="cn" />
+                </div>
+              </div>
+              <div class="flex items-center gap-4 pt-1">
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" id="startTls" v-model="form.config.startTls" class="w-4 h-4 rounded border-input" />
+                  <Label for="startTls">Start TLS</Label>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" id="tlsReject" v-model="form.config.tlsRejectUnauthorized" class="w-4 h-4 rounded border-input" />
+                  <Label for="tlsReject">Verify TLS Certificates</Label>
+                </div>
+              </div>
+            </template>
 
+            <div class="flex gap-2 pt-2">
+              <Button type="submit" :disabled="saving">{{ saving ? 'Saving...' : 'Save' }}</Button>
+              <Button variant="outline" type="button" @click="mode = 'list'">Cancel</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </template>
+
+    <!-- Provider List -->
+    <template v-if="mode === 'list'">
+      <div class="flex items-center justify-between mt-4 mb-6">
+        <h1 class="text-3xl font-bold">Authentication Providers</h1>
+        <Button @click="openAddForm">+ Add Provider</Button>
+      </div>
+
+      <!-- Delete Confirmation (keep as dialog — it's minimal) -->
+      <Dialog v-model:open="showDeleteDialog">
+        <DialogContent class="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Provider</DialogTitle>
+            <DialogDescription>Are you sure you want to delete "{{ deletingProvider?.name }}"? This cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <div v-if="deleteError" class="p-2 rounded-md bg-destructive/10 text-destructive text-sm">{{ deleteError }}</div>
           <div class="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" @click="showDialog = false">Cancel</Button>
-            <Button type="submit" :disabled="saving">{{ saving ? 'Saving...' : 'Save' }}</Button>
+            <Button variant="outline" @click="showDeleteDialog = false">Cancel</Button>
+            <Button variant="destructive" :disabled="deleting" @click="handleDelete">{{ deleting ? 'Deleting...' : 'Delete' }}</Button>
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
 
-    <!-- Delete Confirmation -->
-    <Dialog v-model:open="showDeleteDialog">
-      <DialogContent class="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Delete Provider</DialogTitle>
-          <DialogDescription>Are you sure you want to delete "{{ deletingProvider?.name }}"? This cannot be undone.</DialogDescription>
-        </DialogHeader>
-        <div v-if="deleteError" class="p-2 rounded-md bg-destructive/10 text-destructive text-sm">{{ deleteError }}</div>
-        <div class="flex justify-end gap-2 pt-2">
-          <Button variant="outline" @click="showDeleteDialog = false">Cancel</Button>
-          <Button variant="destructive" :disabled="deleting" @click="handleDelete">{{ deleting ? 'Deleting...' : 'Delete' }}</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+      <!-- Test Connection Result (keep as dialog) -->
+      <Dialog v-model:open="showTestDialog">
+        <DialogContent class="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Connection Test</DialogTitle>
+          </DialogHeader>
+          <div :class="testResult?.success ? 'text-green-600 dark:text-green-400' : 'text-destructive'" class="text-sm">
+            {{ testResult?.message || 'Testing...' }}
+          </div>
+          <div class="flex justify-end pt-2">
+            <Button variant="outline" @click="showTestDialog = false">Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-    <!-- Test Connection Result -->
-    <Dialog v-model:open="showTestDialog">
-      <DialogContent class="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Connection Test</DialogTitle>
-        </DialogHeader>
-        <div :class="testResult?.success ? 'text-green-600 dark:text-green-400' : 'text-destructive'" class="text-sm">
-          {{ testResult?.message || 'Testing...' }}
-        </div>
-        <div class="flex justify-end pt-2">
-          <Button variant="outline" @click="showTestDialog = false">Close</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-
-    <!-- Providers List -->
-    <Card>
-      <CardHeader>
-        <CardTitle>Configured Providers</CardTitle>
-        <CardDescription>Authentication providers available for this workspace. Users will see enabled providers on the login page.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Priority</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead class="w-[180px] text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow v-for="p in providerList" :key="p.id">
-              <TableCell class="font-medium">{{ p.name }}</TableCell>
-              <TableCell>
-                <Badge :variant="p.providerType === 'ldap' ? 'default' : 'secondary'">
-                  {{ p.providerType === 'ldap' ? 'LDAP' : 'Database' }}
-                </Badge>
-              </TableCell>
-              <TableCell class="text-muted-foreground">{{ p.priority }}</TableCell>
-              <TableCell>
-                <Badge :variant="p.isEnabled ? 'default' : 'outline'" :class="p.isEnabled ? 'bg-green-600' : ''">
-                  {{ p.isEnabled ? 'Enabled' : 'Disabled' }}
-                </Badge>
-              </TableCell>
-              <TableCell class="text-muted-foreground text-sm">{{ new Date(p.createdAt).toLocaleDateString() }}</TableCell>
-              <TableCell class="text-right space-x-1">
-                <Button v-if="p.providerType === 'ldap'" variant="ghost" size="sm" @click="testConnection(p)">Test</Button>
-                <Button variant="ghost" size="sm" @click="openEditDialog(p)">Edit</Button>
-                <Button variant="ghost" size="sm" class="text-destructive" @click="confirmDelete(p)">Delete</Button>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-        <p v-if="providerList.length === 0" class="text-muted-foreground py-4 text-center">No auth providers configured. The default database login is always available.</p>
-      </CardContent>
-    </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Configured Providers</CardTitle>
+          <CardDescription>Authentication providers available for this workspace. Users will see enabled providers on the login page.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead class="w-[180px] text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="p in providerList" :key="p.id">
+                <TableCell class="font-medium">{{ p.name }}</TableCell>
+                <TableCell>
+                  <Badge :variant="p.providerType === 'ldap' ? 'default' : 'secondary'">
+                    {{ p.providerType === 'ldap' ? 'LDAP' : 'Database' }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="text-muted-foreground">{{ p.priority }}</TableCell>
+                <TableCell>
+                  <Badge :variant="p.isEnabled ? 'default' : 'outline'" :class="p.isEnabled ? 'bg-green-600' : ''">
+                    {{ p.isEnabled ? 'Enabled' : 'Disabled' }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="text-muted-foreground text-sm">{{ new Date(p.createdAt).toLocaleDateString() }}</TableCell>
+                <TableCell class="text-right space-x-1">
+                  <Button v-if="p.providerType === 'ldap'" variant="ghost" size="sm" @click="testConnection(p)">Test</Button>
+                  <Button variant="ghost" size="sm" @click="openEditForm(p)">Edit</Button>
+                  <Button variant="ghost" size="sm" class="text-destructive" @click="confirmDelete(p)">Delete</Button>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+          <p v-if="providerList.length === 0" class="text-muted-foreground py-4 text-center">No auth providers configured. The default database login is always available.</p>
+        </CardContent>
+      </Card>
+    </template>
   </div>
 </template>
 
@@ -208,12 +217,14 @@ interface Provider {
 
 const { authHeaders } = useAuth();
 const headers = authHeaders();
+const route = useRoute();
+const ws = computed(() => (route.params.workspace as string) || 'default');
 
 const { data: providersData, refresh } = await useFetch('/api/auth-providers', { headers });
 const providerList = computed(() => (providersData.value as { providers: Provider[] })?.providers ?? []);
 
-// ── Dialog State ─────────────────────────────────────────────────
-const showDialog = ref(false);
+// ── Mode & Form State ────────────────────────────────────────────
+const mode = ref<'list' | 'form'>('list');
 const saving = ref(false);
 const formError = ref('');
 const editing = ref<Provider | null>(null);
@@ -247,14 +258,14 @@ function resetForm() {
   Object.assign(form.config, { ...defaultConfig });
 }
 
-function openAddDialog() {
+function openAddForm() {
   editing.value = null;
   formError.value = '';
   resetForm();
-  showDialog.value = true;
+  mode.value = 'form';
 }
 
-function openEditDialog(p: Provider) {
+function openEditForm(p: Provider) {
   editing.value = p;
   formError.value = '';
   form.providerType = p.providerType;
@@ -264,9 +275,9 @@ function openEditDialog(p: Provider) {
   Object.assign(form.config, {
     ...defaultConfig,
     ...p.config,
-    bindCredential: '', // Don't pre-fill password
+    bindCredential: '',
   });
-  showDialog.value = true;
+  mode.value = 'form';
 }
 
 async function handleSave() {
@@ -282,7 +293,6 @@ async function handleSave() {
 
     if (form.providerType === 'ldap') {
       const config: Record<string, unknown> = { ...form.config };
-      // Remove blank bind credential on edit (keeps existing encrypted value)
       if (editing.value && !config.bindCredential) {
         delete config.bindCredential;
       }
@@ -301,7 +311,7 @@ async function handleSave() {
       });
     }
 
-    showDialog.value = false;
+    mode.value = 'list';
     await refresh();
   } catch (e: unknown) {
     const fetchErr = e as { data?: { error?: string } };
@@ -356,7 +366,7 @@ async function testConnection(p: Provider) {
       body: {
         url: p.config.url,
         bindDn: p.config.bindDn,
-        bindCredential: '_USE_STORED_', // Backend should handle stored credentials
+        bindCredential: '_USE_STORED_',
         searchBase: p.config.searchBase,
         startTls: p.config.startTls,
         tlsRejectUnauthorized: p.config.tlsRejectUnauthorized,

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { randomBytes, createHash } from 'crypto';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { db } from '../database/index.js';
 import { personalAccessTokens, users, workspaces } from '../database/schema.js';
 import { authMiddleware } from '@oao/shared';
@@ -41,6 +41,7 @@ const createTokenSchema = z.object({
   name: z.string().min(1).max(100),
   scopes: z.array(z.enum(AVAILABLE_SCOPES as unknown as [string, ...string[]])).min(1),
   expiresInDays: z.number().int().min(1).max(365).nullable().optional(), // null = no expiry
+  expiresAt: z.string().datetime().nullable().optional(), // ISO datetime — takes precedence over expiresInDays
 });
 
 // ─── GET /scopes — list available scopes ─────────────────────────────
@@ -84,9 +85,11 @@ tokens.post('/', authMiddleware, async (c) => {
   const hash = hashToken(rawToken);
   const prefix = rawToken.slice(0, 8); // "oao_xxxx"
 
-  const expiresAt = body.expiresInDays
-    ? new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000)
-    : null;
+  const expiresAt = body.expiresAt
+    ? new Date(body.expiresAt)
+    : body.expiresInDays
+      ? new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000)
+      : null;
 
   const [pat] = await db
     .insert(personalAccessTokens)
@@ -119,23 +122,33 @@ tokens.post('/', authMiddleware, async (c) => {
 
 tokens.get('/', authMiddleware, async (c) => {
   const user = c.get('user');
+  const page = Math.max(1, Number(c.req.query('page') || 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query('limit') || 50)));
+  const offset = (page - 1) * limit;
 
-  const pats = await db
-    .select({
-      id: personalAccessTokens.id,
-      name: personalAccessTokens.name,
-      tokenPrefix: personalAccessTokens.tokenPrefix,
-      scopes: personalAccessTokens.scopes,
-      expiresAt: personalAccessTokens.expiresAt,
-      lastUsedAt: personalAccessTokens.lastUsedAt,
-      isRevoked: personalAccessTokens.isRevoked,
-      createdAt: personalAccessTokens.createdAt,
-    })
-    .from(personalAccessTokens)
-    .where(eq(personalAccessTokens.userId, user.userId))
-    .orderBy(desc(personalAccessTokens.createdAt));
+  const whereClause = eq(personalAccessTokens.userId, user.userId);
 
-  return c.json({ tokens: pats.map((p) => ({ ...p, scopes: p.scopes as string[] })) });
+  const [pats, countResult] = await Promise.all([
+    db
+      .select({
+        id: personalAccessTokens.id,
+        name: personalAccessTokens.name,
+        tokenPrefix: personalAccessTokens.tokenPrefix,
+        scopes: personalAccessTokens.scopes,
+        expiresAt: personalAccessTokens.expiresAt,
+        lastUsedAt: personalAccessTokens.lastUsedAt,
+        isRevoked: personalAccessTokens.isRevoked,
+        createdAt: personalAccessTokens.createdAt,
+      })
+      .from(personalAccessTokens)
+      .where(whereClause)
+      .orderBy(desc(personalAccessTokens.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ count: sql<number>`count(*)::int` }).from(personalAccessTokens).where(whereClause),
+  ]);
+
+  return c.json({ tokens: pats.map((p) => ({ ...p, scopes: p.scopes as string[] })), total: countResult[0]?.count ?? 0, page, limit });
 });
 
 // ─── DELETE /:id — revoke a PAT ─────────────────────────────────────

@@ -13,7 +13,11 @@ workflowsRouter.use('/*', authMiddleware);
 // Query params: ?labels=label1,label2 — filter by ALL specified labels (AND logic)
 workflowsRouter.get('/', async (c) => {
   const user = c.get('user');
-  if (!user.workspaceId) return c.json({ workflows: [] });
+  if (!user.workspaceId) return c.json({ workflows: [], total: 0 });
+
+  const page = Math.max(1, Number(c.req.query('page') || 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query('limit') || 50)));
+  const offset = (page - 1) * limit;
 
   const labelsParam = c.req.query('labels');
   const labelFilter = labelsParam ? labelsParam.split(',').map(l => l.trim()).filter(Boolean) : [];
@@ -31,9 +35,17 @@ workflowsRouter.get('/', async (c) => {
     conditions.push(arrayContains(workflows.labels, labelFilter));
   }
 
-  const workflowList = await db.query.workflows.findMany({
-    where: and(...conditions),
-  });
+  const whereClause = and(...conditions);
+
+  const [workflowList, countResult] = await Promise.all([
+    db.query.workflows.findMany({
+      where: whereClause,
+      orderBy: desc(workflows.createdAt),
+      limit,
+      offset,
+    }),
+    db.select({ count: sql<number>`count(*)::int` }).from(workflows).where(whereClause),
+  ]);
 
   // Fetch last execution time for each workflow
   const lastExecMap: Record<string, string | null> = {};
@@ -63,7 +75,7 @@ workflowsRouter.get('/', async (c) => {
     ownerName: ownerMap[w.userId] ?? 'Unknown',
   }));
 
-  return c.json({ workflows: enriched });
+  return c.json({ workflows: enriched, total: countResult[0]?.count ?? 0, page, limit });
 });
 
 // GET /labels — list all distinct labels used in workflows (for filter UI)

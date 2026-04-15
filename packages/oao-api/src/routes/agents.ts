@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, desc, sql } from 'drizzle-orm';
 import { db } from '../database/index.js';
 import { agents } from '../database/schema.js';
 import { authMiddleware, encrypt, uuidSchema } from '@oao/shared';
@@ -12,21 +12,32 @@ agentsRouter.use('/*', authMiddleware);
 // GET / — list agents visible to user: user-scoped (own) + workspace-scoped
 agentsRouter.get('/', async (c) => {
   const user = c.get('user');
-  if (!user.workspaceId) return c.json({ agents: [] });
+  if (!user.workspaceId) return c.json({ agents: [], total: 0 });
 
-  const agentList = await db.query.agents.findMany({
-    where: and(
-      eq(agents.workspaceId, user.workspaceId),
-      or(
-        eq(agents.scope, 'workspace'),
-        eq(agents.userId, user.userId),
-      ),
+  const page = Math.max(1, Number(c.req.query('page') || 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query('limit') || 50)));
+  const offset = (page - 1) * limit;
+
+  const whereClause = and(
+    eq(agents.workspaceId, user.workspaceId),
+    or(
+      eq(agents.scope, 'workspace'),
+      eq(agents.userId, user.userId),
     ),
-    columns: {
-      githubTokenEncrypted: false,
-    },
-  });
-  return c.json({ agents: agentList });
+  );
+
+  const [agentList, countResult] = await Promise.all([
+    db.query.agents.findMany({
+      where: whereClause,
+      columns: { githubTokenEncrypted: false },
+      orderBy: desc(agents.createdAt),
+      limit,
+      offset,
+    }),
+    db.select({ count: sql<number>`count(*)::int` }).from(agents).where(whereClause),
+  ]);
+
+  return c.json({ agents: agentList, total: countResult[0]?.count ?? 0, page, limit });
 });
 
 // POST / — create agent
@@ -48,6 +59,7 @@ const createAgentSchema = z.object({
   skillsDirectory: z.string().max(300).optional(),
   githubToken: z.string().max(500).optional(),
   githubTokenCredentialId: z.string().uuid().optional(),
+  copilotTokenCredentialId: z.string().uuid().optional(),
   scope: z.enum(['user', 'workspace']).default('user'),
   builtinToolsEnabled: z.array(z.enum(BUILTIN_TOOL_NAMES)).default([...BUILTIN_TOOL_NAMES]),
   mcpJsonTemplate: z.string().max(50000).optional(),
@@ -89,6 +101,7 @@ agentsRouter.post('/', async (c) => {
       skillsDirectory: body.skillsDirectory ?? null,
       githubTokenEncrypted: body.githubToken ? encrypt(body.githubToken) : null,
       githubTokenCredentialId: body.githubTokenCredentialId ?? null,
+      copilotTokenCredentialId: body.copilotTokenCredentialId ?? null,
       builtinToolsEnabled: body.builtinToolsEnabled,
       mcpJsonTemplate: body.mcpJsonTemplate ?? null,
     })
@@ -141,6 +154,7 @@ const updateAgentSchema = z.object({
   skillsDirectory: z.string().max(300).nullable().optional(),
   githubToken: z.string().max(500).optional(),
   githubTokenCredentialId: z.string().uuid().nullable().optional(),
+  copilotTokenCredentialId: z.string().uuid().nullable().optional(),
   status: z.enum(['active', 'paused']).optional(),
   builtinToolsEnabled: z.array(z.enum(BUILTIN_TOOL_NAMES)).optional(),
   mcpJsonTemplate: z.string().max(50000).nullable().optional(),
@@ -183,6 +197,9 @@ agentsRouter.put('/:id', async (c) => {
     updateData.githubTokenCredentialId = body.githubTokenCredentialId;
     // Clear inline token when switching to credential reference
     if (body.githubTokenCredentialId) updateData.githubTokenEncrypted = null;
+  }
+  if (body.copilotTokenCredentialId !== undefined) {
+    updateData.copilotTokenCredentialId = body.copilotTokenCredentialId;
   }
   if (body.status) updateData.status = body.status;
   if (body.builtinToolsEnabled) updateData.builtinToolsEnabled = body.builtinToolsEnabled;

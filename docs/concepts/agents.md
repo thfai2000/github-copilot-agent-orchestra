@@ -202,7 +202,7 @@ In addition to DB-configured MCP servers, agents can define an **MCP JSON Templa
 }
 ```
 
-The rendered JSON must contain a `mcpServers` key mapping server names to `{ command, args?, env? }` objects. Servers from the template are spawned alongside DB-configured MCP servers.
+The rendered JSON must contain a `mcpServers` key mapping server names to `{ command, args?, env? }` objects.
 
 ### Tool Loading Flow
 

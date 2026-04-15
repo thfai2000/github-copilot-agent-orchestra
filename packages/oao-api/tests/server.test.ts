@@ -223,39 +223,6 @@ describe('Supervisor routes', () => {
   });
 });
 
-describe('MCP server routes', () => {
-  it('rejects MCP server creation without auth', async () => {
-    const { app } = await import('../src/server.js');
-    const res = await app.request('/api/mcp-servers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        agentId: '550e8400-e29b-41d4-a716-446655440000',
-        name: 'Test Server',
-        command: 'node',
-      }),
-    });
-    expect(res.status).toBe(401);
-  });
-
-  it('rejects MCP server listing without agentId', async () => {
-    const { createJwt } = await import('@oao/shared');
-    const token = await createJwt({
-      userId: '550e8400-e29b-41d4-a716-446655440000',
-      email: 'test@example.com',
-      name: 'Test',
-      role: 'creator_user',
-      workspaceId: '550e8400-e29b-41d4-a716-446655440001',
-      workspaceSlug: 'default',
-    });
-    const { app } = await import('../src/server.js');
-    const res = await app.request('/api/mcp-servers', {
-      headers: { Authorization: 'Bearer ' + token },
-    });
-    expect(res.status).toBe(400);
-  });
-});
-
 describe('Event routes', () => {
   it('requires auth for events list', async () => {
     const { app } = await import('../src/server.js');

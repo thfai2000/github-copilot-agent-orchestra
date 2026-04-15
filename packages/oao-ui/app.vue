@@ -10,8 +10,39 @@
       </div>
       <div class="flex items-center gap-4">
         <template v-if="isAuthenticated">
-          <span class="text-sm text-muted-foreground hidden sm:inline">{{ user?.name }} <span class="text-xs">({{ roleLabel }})</span></span>
-          <button @click="logout" class="text-sm text-muted-foreground hover:text-foreground transition">Logout</button>
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <button class="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition text-sm">
+                <span class="inline-flex items-center justify-center h-7 w-7 rounded-full bg-primary/10 text-primary text-xs font-bold">
+                  {{ user?.name?.charAt(0)?.toUpperCase() || '?' }}
+                </span>
+                <span class="hidden sm:inline text-foreground">{{ user?.name }}</span>
+                <span class="hidden sm:inline text-[10px] text-muted-foreground">({{ roleLabel }})</span>
+                <span class="text-xs text-muted-foreground">▾</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-52">
+              <DropdownMenuLabel class="font-normal">
+                <p class="text-sm font-medium">{{ user?.name }}</p>
+                <p class="text-xs text-muted-foreground">{{ user?.email }}</p>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem as-child>
+                <NuxtLink :to="`/${ws}/settings/change-password`" class="cursor-pointer">
+                  <span class="mr-2">🔑</span>Change Password
+                </NuxtLink>
+              </DropdownMenuItem>
+              <DropdownMenuItem as-child>
+                <NuxtLink :to="`/${ws}/settings/tokens`" class="cursor-pointer">
+                  <span class="mr-2">🎟️</span>Access Tokens
+                </NuxtLink>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem class="text-destructive cursor-pointer" @click="logout">
+                <span class="mr-2">🚪</span>Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </template>
         <template v-else>
           <NuxtLink :to="`/${ws}/login`" class="text-sm text-muted-foreground hover:text-foreground transition">Login</NuxtLink>
@@ -60,12 +91,6 @@
             </NuxtLink>
           </template>
         </nav>
-
-        <!-- Sidebar footer -->
-        <div class="border-t border-border px-3 py-3">
-          <div class="text-xs text-muted-foreground truncate">{{ user?.name }}</div>
-          <div class="text-[10px] text-muted-foreground">{{ roleLabel }}</div>
-        </div>
       </aside>
 
       <!-- Main content -->
@@ -103,7 +128,6 @@ const mainNav = computed(() => [
   { to: `/${ws.value}/events`, icon: '📡', label: 'Events' },
   { to: `/${ws.value}/variables`, icon: '🔑', label: 'Variables' },
   { to: `/${ws.value}/admin/quotas`, icon: '📊', label: 'Quotas' },
-  { to: `/${ws.value}/settings/change-password`, icon: '⚙️', label: 'Settings' },
 ]);
 
 const adminNav = computed(() => [

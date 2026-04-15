@@ -145,8 +145,7 @@ Tools are loaded in order and merged into a single array:
 
 | Source | Description |
 |---|---|
-| **Built-in tools** (10 tools) | `schedule_next_workflow_execution`, `manage_webhook_trigger`, `record_decision`, `memory_store`, `memory_retrieve`, `edit_workflow`, `read_variables`, `edit_variables`, `simple_http_request` — filtered by `builtinToolsEnabled` |
-| **MCP servers (DB-configured)** | Per-agent MCP server configs from `mcp_server_configs` table. Env vars resolved from credentials via `envMapping`. |
+| **Built-in tools** (9 tools) | `schedule_next_workflow_execution`, `manage_webhook_trigger`, `record_decision`, `memory_store`, `memory_retrieve`, `edit_workflow`, `read_variables`, `edit_variables`, `simple_http_request` — filtered by `builtinToolsEnabled` |
 | **MCP servers (JSON template)** | Agent's `mcpJsonTemplate` field rendered with Jinja2, parsed as JSON, and each server spawned. |
 
 ### Model Resolution

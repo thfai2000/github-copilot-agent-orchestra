@@ -73,7 +73,9 @@ Database-stored agent files (for `sourceType: database`).
 | createdAt, updatedAt | timestamp | |
 | | | UNIQUE(agentId, filePath) |
 
-### mcp_server_configs
+### mcp_server_configs (deprecated)
+
+> **Deprecated**: MCP server management through the UI has been removed in v1.15.0. Use the agent's `mcpJsonTemplate` field instead. The table is retained for backward compatibility with existing data.
 
 MCP server configurations per agent.
 

@@ -45,6 +45,14 @@ export const stepStatusEnum = pgEnum('step_status', [
 ]);
 export const reasoningEffortEnum = pgEnum('reasoning_effort', ['high', 'medium', 'low']);
 export const variableTypeEnum = pgEnum('variable_type', ['property', 'credential']);
+export const credentialSubTypeEnum = pgEnum('credential_sub_type', [
+  'secret_text',
+  'github_token',
+  'github_app',
+  'user_account',
+  'private_key',
+  'certificate',
+]);
 export const agentInstanceTypeEnum = pgEnum('agent_instance_type', ['static', 'ephemeral']);
 export const agentInstanceStatusEnum = pgEnum('agent_instance_status', ['idle', 'busy', 'offline', 'terminated']);
 export const authProviderTypeEnum = pgEnum('auth_provider_type', ['database', 'ldap']);
@@ -93,7 +101,8 @@ export const agents = pgTable('agents', {
   skillsPaths: varchar('skills_paths', { length: 300 }).array().notNull().default([]),
   skillsDirectory: varchar('skills_directory', { length: 300 }), // e.g. "skills/" — loads all .md files from this directory (github_repo only)
   githubTokenEncrypted: text('github_token_encrypted'),
-  githubTokenCredentialId: varchar('github_token_credential_id', { length: 100 }), // references a credential variable key
+  githubTokenCredentialId: varchar('github_token_credential_id', { length: 100 }), // references a credential variable key (git clone auth)
+  copilotTokenCredentialId: varchar('copilot_token_credential_id', { length: 100 }), // references a credential key for Copilot SDK auth
   mcpJsonTemplate: text('mcp_json_template'), // Jinja2 template for mcp.json — rendered with properties.* and credentials.* before session
   builtinToolsEnabled: jsonb('builtin_tools_enabled').notNull().default([
     'schedule_next_workflow_execution', 'manage_webhook_trigger', 'record_decision',
@@ -243,6 +252,7 @@ export const agentVariables = pgTable(
     key: varchar('key', { length: 100 }).notNull(),
     valueEncrypted: text('value_encrypted').notNull(),
     variableType: variableTypeEnum('variable_type').notNull().default('credential'),
+    credentialSubType: credentialSubTypeEnum('credential_sub_type').notNull().default('secret_text'),
     injectAsEnvVariable: boolean('inject_as_env_variable').notNull().default(false),
     description: varchar('description', { length: 300 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -265,6 +275,7 @@ export const userVariables = pgTable(
     key: varchar('key', { length: 100 }).notNull(),
     valueEncrypted: text('value_encrypted').notNull(),
     variableType: variableTypeEnum('variable_type').notNull().default('credential'),
+    credentialSubType: credentialSubTypeEnum('credential_sub_type').notNull().default('secret_text'),
     injectAsEnvVariable: boolean('inject_as_env_variable').notNull().default(false),
     description: varchar('description', { length: 300 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -347,6 +358,7 @@ export const workspaceVariables = pgTable(
     key: varchar('key', { length: 100 }).notNull(),
     valueEncrypted: text('value_encrypted').notNull(),
     variableType: variableTypeEnum('variable_type').notNull().default('credential'),
+    credentialSubType: credentialSubTypeEnum('credential_sub_type').notNull().default('secret_text'),
     injectAsEnvVariable: boolean('inject_as_env_variable').notNull().default(false),
     description: varchar('description', { length: 300 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

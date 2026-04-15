@@ -50,8 +50,20 @@ export function buildTemplateContext(params: {
   for (const [k, v] of params.properties) propsObj[k] = v;
   ctx['properties'] = propsObj;
 
-  const credsObj: Record<string, string> = {};
-  for (const [k, v] of params.credentials) credsObj[k] = v;
+  const credsObj: Record<string, string | Record<string, string>> = {};
+  for (const [k, v] of params.credentials) {
+    // Multi-attribute credentials are stored as JSON objects — parse them
+    // so templates can use {{ credentials.KEY.username }} etc.
+    if (v.startsWith('{')) {
+      try {
+        credsObj[k] = JSON.parse(v) as Record<string, string>;
+      } catch {
+        credsObj[k] = v;
+      }
+    } else {
+      credsObj[k] = v;
+    }
+  }
   ctx['credentials'] = credsObj;
 
   if (params.envVariables) {

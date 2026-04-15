@@ -98,15 +98,6 @@ For agents with `sourceType: database`:
 | GET | `/api/events` | List system events (paginated) |
 | GET | `/api/events/names` | Available event names |
 
-## MCP Servers
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/mcp-servers?agentId=...` | List MCP configs for agent |
-| POST | `/api/mcp-servers` | Add MCP server config |
-| PUT | `/api/mcp-servers/:id` | Update config |
-| DELETE | `/api/mcp-servers/:id` | Delete config |
-
 ## Admin
 
 Requires `workspace_admin` or `super_admin` role.

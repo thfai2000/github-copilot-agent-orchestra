@@ -15,7 +15,6 @@ import variablesRouter from './routes/variables.js';
 import triggersRouter from './routes/triggers.js';
 import webhooks from './routes/webhooks.js';
 import supervisorRouter from './routes/supervisor.js';
-import mcpServersRouter from './routes/mcp-servers.js';
 import adminRouter from './routes/admin.js';
 import quotaRouter from './routes/quota.js';
 import workspacesRouter from './routes/workspaces.js';
@@ -48,7 +47,6 @@ const app = createApp({
     ['/api/triggers', triggersRouter],
     ['/api/webhooks', webhooks],
     ['/api/supervisor', supervisorRouter],
-    ['/api/mcp-servers', mcpServersRouter],
     ['/api/admin', adminRouter],
     ['/api/quota', quotaRouter],
     ['/api/workspaces', workspacesRouter],

@@ -37,12 +37,24 @@ adminRouter.use('/*', requireWorkspaceAdmin);
 // GET /users — list users in current workspace
 adminRouter.get('/users', async (c) => {
   const user = c.get('user');
-  const allUsers = await db.query.users.findMany({
-    where: eq(users.workspaceId, user.workspaceId!),
-    columns: { passwordHash: false },
-    orderBy: desc(users.createdAt),
-  });
-  return c.json({ users: allUsers });
+  const page = Math.max(1, Number(c.req.query('page') || 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query('limit') || 50)));
+  const offset = (page - 1) * limit;
+
+  const whereClause = eq(users.workspaceId, user.workspaceId!);
+
+  const [allUsers, countResult] = await Promise.all([
+    db.query.users.findMany({
+      where: whereClause,
+      columns: { passwordHash: false },
+      orderBy: desc(users.createdAt),
+      limit,
+      offset,
+    }),
+    db.select({ count: sql<number>`count(*)::int` }).from(users).where(whereClause),
+  ]);
+
+  return c.json({ users: allUsers, total: countResult[0]?.count ?? 0, page, limit });
 });
 
 // POST /users — create user in current workspace
