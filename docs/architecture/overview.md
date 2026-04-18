@@ -10,7 +10,7 @@ Open Agent Orchestra (OAO) is an autonomous AI workflow engine. It can be deploy
 | **OAO-UI** | Dashboard (Nuxt 3 SSR) for managing the platform | 3002 | Yes (horizontal) |
 | **OAO-Controller** | Trigger poller + workflow dispatcher (leader-elected) | — | Yes (HA standby) |
 | **Static Agent Worker** | Long-running BullMQ consumer for step execution | — | Yes (horizontal) |
-| **Ephemeral Agent Instance** | Short-lived K8s pod per step (K8s only) | — | Auto (per-step) |
+| **Ephemeral Agent Instance** | Short-lived K8s pod per step (K8s only) | — | Yes, when a workflow selects `ephemeral` runtime |
 | **PostgreSQL** | Persistent storage + pgvector embeddings | 5432 | External / managed |
 | **Redis** | Job queues (BullMQ) + leader lock + semaphore | 6379 | External / managed |
 
@@ -111,7 +111,7 @@ A long-running process that manages triggers and dispatches work. Runs as a cont
 |---|---|
 | **Leader Election** | Redis `SETNX` with 60s TTL — only one instance polls; others are standby |
 | **Trigger Poller** | Polls PostgreSQL for due triggers and new `system_events` |
-| **BullMQ Worker** | Dequeues workflow jobs. Dispatches steps to static workers (via queue) or ephemeral instances (via K8s API). |
+| **BullMQ Worker** | Dequeues workflow jobs. Dispatches steps to static workers (via queue) or ephemeral instances (via K8s API) based on the workflow's `workerRuntime`. |
 
 **Scaling:** Deploy multiple controller replicas for HA. Leader election ensures exactly one polls. BullMQ's atomic dequeue prevents duplicates.
 

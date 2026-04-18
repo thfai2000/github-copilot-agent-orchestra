@@ -51,7 +51,7 @@ Organizations adopting AI automation at scale face additional requirements that 
 
 - **Agent decision audit trail** — Agents can record structured decisions via the built-in `record_decision` tool, creating a queryable trail of what was decided, why, and with what confidence. Combined with full step execution logs (including tool calls and reasoning traces), teams can reconstruct any agent's decision process.
 
-- **Scalable execution architecture** — Static agent workers handle steady-state workloads; ephemeral instances (K8s) handle burst demand. Both types run simultaneously in Kubernetes, letting teams balance cost against isolation for different workflow tiers.
+- **Scalable execution architecture** — Each workflow selects a worker runtime: static workers for steady-state queue processing, or ephemeral Kubernetes instances for per-step isolation. This lets teams choose cost versus isolation per workflow.
 
 ## The Solution
 

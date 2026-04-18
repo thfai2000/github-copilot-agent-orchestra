@@ -355,8 +355,10 @@ describe('Workflow routes — authenticated', () => {
       headers: authHeaders(token),
       body: JSON.stringify({
         name: 'Test Workflow',
+        workerRuntime: 'ephemeral',
+        stepAllocationTimeoutSeconds: 180,
         steps: [
-          { name: 'Step 1', promptTemplate: 'Do something', stepOrder: 1 },
+          { name: 'Step 1', promptTemplate: 'Do something', stepOrder: 1, workerRuntime: 'static' },
         ],
       }),
     });

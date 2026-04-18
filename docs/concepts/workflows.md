@@ -24,6 +24,8 @@ Each workflow has:
 - **Default agent** — used when a step doesn't specify its own
 - **Default model** — selected from admin-configured models (e.g., `claude-sonnet-4-6`, `gpt-5.4`)
 - **Default reasoning effort** — `high`, `medium`, or `low`
+- **Worker runtime** — workflow default for step dispatch: `static` (BullMQ worker pool) or `ephemeral` (one Kubernetes pod per step)
+- **Step allocation timeout** — how long a step may remain pending while waiting for a runtime to become ready
 - **Scope** — `user` (private) or `workspace` (shared, admin-only creation)
 - **Version** — auto-incremented on every edit
 
@@ -38,14 +40,35 @@ Each step defines:
 | **Agent** | Optional override (defaults to workflow's agent) |
 | **Model** | Optional override (defaults to workflow's model) |
 | **Reasoning Effort** | Optional override (`high`, `medium`, `low`) |
+| **Worker Runtime** | Optional override (`static`, `ephemeral`) that falls back to the workflow default |
 | **Timeout** | Max execution time in seconds (30–3600, default: 300) |
 
 ### Resolution Priority
 
-For Agent, Model, and Reasoning Effort, the engine resolves in this order:
+For Agent, Model, Reasoning Effort, and Worker Runtime, the engine resolves in this order:
 1. **Step-level override** (if set)
 2. **Workflow-level default** (if set)
-3. **Platform default** (for model: `DEFAULT_AGENT_MODEL` env var, defaults to `gpt-4.1`)
+3. **Platform default** (for model: `DEFAULT_AGENT_MODEL` env var, defaults to `gpt-4.1`; for runtime: `static`)
+
+### Worker Runtime
+
+Workflow dispatch resolves the runtime per step:
+
+| Runtime | Behavior |
+|---|---|
+| **`static`** | Enqueue the step on the shared `agent-step-execution` BullMQ queue for long-running worker instances. The step stays `pending` until a static worker starts it. |
+| **`ephemeral`** | Create a dedicated Kubernetes pod for that step. The step stays `pending` while the pod is created and becomes ready. |
+
+The resolved runtime is snapshotted onto each `workflow_execution`, so execution history keeps the original dispatch mode even if the workflow is edited later.
+
+### Step Allocation Timeout
+
+Each workflow defines a **Step Allocation Timeout** in seconds.
+
+- A **static** step uses this timeout while waiting for a shared worker to start the job.
+- An **ephemeral** step uses this timeout while waiting for its dedicated pod to be created and reach a runnable state.
+- While allocation is pending, the step remains `pending` and the workflow execution remains `running`.
+- The workflow only fails when allocation exceeds the configured timeout.
 
 ### Jinja2 Prompt Templates
 
@@ -139,6 +162,8 @@ Triggers define **when** a workflow executes. Workflows can also be run manually
 | **Exact Datetime** | One-shot at a specific time | ISO 8601 datetime (auto-deactivates after firing) |
 | **Webhook** | External HTTP call with parameter validation | URL path + HMAC-SHA256 secret + parameter definitions |
 | **Event** | React to system events | Event name + optional conditions |
+
+Triggers are **immutable after creation**. To change a trigger's schedule, webhook path, or conditions, delete it and create a replacement trigger.
 
 ### Manual Run
 

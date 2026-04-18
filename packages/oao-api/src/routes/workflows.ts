@@ -98,6 +98,7 @@ const stepSchema = z.object({
   agentId: z.string().uuid().optional(), // optional — falls back to workflow defaultAgentId
   model: z.string().max(100).optional(),
   reasoningEffort: z.enum(['high', 'medium', 'low']).optional(),
+  workerRuntime: z.enum(['static', 'ephemeral']).optional(),
   timeoutSeconds: z.number().int().min(30).max(3600).default(300),
 });
 
@@ -113,6 +114,8 @@ const createWorkflowSchema = z.object({
   defaultAgentId: z.string().uuid().optional(),
   defaultModel: z.string().max(100).optional(),
   defaultReasoningEffort: z.enum(['high', 'medium', 'low']).optional(),
+  workerRuntime: z.enum(['static', 'ephemeral']).default('static'),
+  stepAllocationTimeoutSeconds: z.number().int().min(15).max(3600).default(300),
   scope: z.enum(['user', 'workspace']).default('user'),
   steps: z.array(stepSchema).min(1).max(20),
   triggers: z.array(triggerSchema).optional(),
@@ -168,6 +171,8 @@ workflowsRouter.post('/', async (c) => {
         defaultAgentId: body.defaultAgentId,
         defaultModel: body.defaultModel,
         defaultReasoningEffort: body.defaultReasoningEffort,
+        workerRuntime: body.workerRuntime,
+        stepAllocationTimeoutSeconds: body.stepAllocationTimeoutSeconds,
         version: 1,
       })
       .returning();
@@ -183,6 +188,7 @@ workflowsRouter.post('/', async (c) => {
           agentId: s.agentId,
           model: s.model,
           reasoningEffort: s.reasoningEffort,
+          workerRuntime: s.workerRuntime,
           timeoutSeconds: s.timeoutSeconds,
         })),
       )
@@ -272,6 +278,8 @@ const updateWorkflowSchema = z.object({
   defaultAgentId: z.string().uuid().nullable().optional(),
   defaultModel: z.string().max(100).nullable().optional(),
   defaultReasoningEffort: z.enum(['high', 'medium', 'low']).nullable().optional(),
+  workerRuntime: z.enum(['static', 'ephemeral']).optional(),
+  stepAllocationTimeoutSeconds: z.number().int().min(15).max(3600).optional(),
 });
 
 workflowsRouter.put('/:id', async (c) => {
@@ -346,6 +354,7 @@ workflowsRouter.put('/:id/steps', async (c) => {
           agentId: s.agentId,
           model: s.model,
           reasoningEffort: s.reasoningEffort,
+          workerRuntime: s.workerRuntime,
           timeoutSeconds: s.timeoutSeconds,
         })),
       )

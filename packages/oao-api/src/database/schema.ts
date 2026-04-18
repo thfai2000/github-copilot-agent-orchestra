@@ -44,6 +44,7 @@ export const stepStatusEnum = pgEnum('step_status', [
   'skipped',
 ]);
 export const reasoningEffortEnum = pgEnum('reasoning_effort', ['high', 'medium', 'low']);
+export const workerRuntimeEnum = pgEnum('worker_runtime', ['static', 'ephemeral']);
 export const variableTypeEnum = pgEnum('variable_type', ['property', 'credential']);
 export const credentialSubTypeEnum = pgEnum('credential_sub_type', [
   'secret_text',
@@ -153,6 +154,8 @@ export const workflows = pgTable('workflows', {
   defaultAgentId: uuid('default_agent_id').references(() => agents.id), // workflow-level default agent
   defaultModel: varchar('default_model', { length: 100 }), // workflow-level default model
   defaultReasoningEffort: reasoningEffortEnum('default_reasoning_effort'), // workflow-level default
+  workerRuntime: workerRuntimeEnum('worker_runtime').notNull().default('static'), // workflow-level worker assignment
+  stepAllocationTimeoutSeconds: integer('step_allocation_timeout_seconds').notNull().default(300), // timeout for assigning a step to a runtime
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -173,6 +176,7 @@ export const workflowSteps = pgTable(
       .references(() => agents.id), // optional — falls back to workflow defaultAgentId
     model: varchar('model', { length: 100 }), // Copilot model override (e.g. 'claude-sonnet-4-5')
     reasoningEffort: reasoningEffortEnum('reasoning_effort'), // high/medium/low
+    workerRuntime: workerRuntimeEnum('worker_runtime'), // optional — falls back to workflow workerRuntime
     timeoutSeconds: integer('timeout_seconds').notNull().default(300),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

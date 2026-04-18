@@ -973,7 +973,7 @@ describe('Agent files routes', () => {
 // ======================================================================
 
 describe('Trigger routes — updates and deletes', () => {
-  it('PUT /api/triggers/:id updates trigger configuration', async () => {
+  it('PUT /api/triggers/:id rejects updates because triggers are immutable', async () => {
     const token = await getToken();
     // verifyTriggerAccess: 1st findFirst = trigger, 2nd findFirst = workflow
     mockFindFirst
@@ -989,20 +989,16 @@ describe('Trigger routes — updates and deletes', () => {
         userId: TEST_UUID,
         scope: 'user',
       });
-    mockUpdateReturning.mockResolvedValueOnce([{
-      id: TEST_TRIGGER_ID,
-      configuration: { cron: '*/10 * * * *' },
-    }]);
 
     const res = await app.request(`/api/triggers/${TEST_TRIGGER_ID}`, {
       method: 'PUT',
       headers: authHeaders(token),
       body: JSON.stringify({ configuration: { cron: '*/10 * * * *' } }),
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(405);
   });
 
-  it('PUT /api/triggers/:id can deactivate trigger', async () => {
+  it('PUT /api/triggers/:id also rejects activation changes', async () => {
     const token = await getToken();
     // verifyTriggerAccess: 1st = trigger, 2nd = workflow
     mockFindFirst
@@ -1017,17 +1013,13 @@ describe('Trigger routes — updates and deletes', () => {
         userId: TEST_UUID,
         scope: 'user',
       });
-    mockUpdateReturning.mockResolvedValueOnce([{
-      id: TEST_TRIGGER_ID,
-      isActive: false,
-    }]);
 
     const res = await app.request(`/api/triggers/${TEST_TRIGGER_ID}`, {
       method: 'PUT',
       headers: authHeaders(token),
       body: JSON.stringify({ isActive: false }),
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(405);
   });
 
   it('PUT /api/triggers/:id returns 404 for non-existent', async () => {

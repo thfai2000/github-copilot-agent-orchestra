@@ -102,7 +102,7 @@ npm run dev
 
 ```bash
 # Build Docker images
-BUILD_TAG=1.0.0 bash build.sh
+BUILD_TAG=1.16.2 bash build.sh
 
 # Set up Helm values
 cp helm/oao-platform/values.yaml.template helm/oao-platform/values.yaml

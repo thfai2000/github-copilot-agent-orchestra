@@ -61,15 +61,15 @@ npm test
 ## 4. Build Docker Images
 
 ```bash
-BUILD_TAG=1.0.0 ./build.sh
+BUILD_TAG=1.17.0 ./build.sh
 ```
 
 This builds two images:
 
 | Image | Description |
 |---|---|
-| `oao-core:1.0.0` | Single backend image for all roles (API, Controller, Agent Worker) |
-| `oao-ui:1.0.0` | OAO-UI (Nuxt 3 dashboard) |
+| `oao-core:1.17.0` | Single backend image for all roles (API, Controller, Agent Worker) |
+| `oao-ui:1.17.0` | OAO-UI (Nuxt 3 dashboard) |
 
 ## 5. Deploy
 
@@ -78,10 +78,10 @@ This builds two images:
 Update image tags in `helm/oao-platform/values.yaml`:
 
 ```yaml
-coreImage: oao-core:1.0.0
+coreImage: oao-core:1.17.0
 
 ui:
-  image: oao-ui:1.0.0
+  image: oao-ui:1.17.0
 ```
 
 Run the deploy script (development convenience):
@@ -187,7 +187,7 @@ npx tsc --noEmit -p packages/oao-api/tsconfig.json
 npm run lint && npm test
 
 # 2. Bump version and rebuild
-BUILD_TAG=v1.1 ./build.sh
+BUILD_TAG=1.17.0 ./build.sh
 
 # 3. Update values.yaml with new tag
 # ...edit helm/oao-platform/values.yaml...
@@ -204,7 +204,7 @@ curl http://localhost:4002/health
 To publish your images and Helm chart to Docker Hub:
 
 ```bash
-DOCKER_USERNAME=myuser BUILD_TAG=v1.0 ./publish.sh
+DOCKER_USERNAME=myuser BUILD_TAG=1.17.0 ./publish.sh
 ```
 
 This will:

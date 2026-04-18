@@ -24,7 +24,7 @@
         <NuxtLink :to="`/${ws}/executions/${retryResult.id}`" class="text-primary hover:underline ml-2">View →</NuxtLink>
       </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
         <Card>
           <CardContent class="pt-4">
             <p class="text-xs text-muted-foreground">Triggered By</p>
@@ -33,6 +33,7 @@
           </CardContent>
         </Card>
         <Card><CardContent class="pt-4"><p class="text-xs text-muted-foreground">Workflow Version</p><p class="font-medium font-mono">v{{ execution.workflowVersion || '?' }}</p></CardContent></Card>
+        <Card><CardContent class="pt-4"><p class="text-xs text-muted-foreground">Worker Runtime</p><p class="font-medium">{{ formatWorkerRuntime(executionRuntime) }}</p></CardContent></Card>
         <Card><CardContent class="pt-4"><p class="text-xs text-muted-foreground">Started</p><p class="font-medium text-sm">{{ execution.startedAt ? new Date(execution.startedAt).toLocaleString() : '—' }}</p></CardContent></Card>
         <Card><CardContent class="pt-4"><p class="text-xs text-muted-foreground">Completed</p><p class="font-medium text-sm">{{ execution.completedAt ? new Date(execution.completedAt).toLocaleString() : '—' }}</p></CardContent></Card>
         <Card><CardContent class="pt-4"><p class="text-xs text-muted-foreground">Steps</p><p class="font-medium">{{ execution.currentStep || 0 }} / {{ execution.totalSteps || steps.length }}</p></CardContent></Card>
@@ -94,6 +95,7 @@
                 <div v-if="getTraceModel(step.reasoningTrace)" class="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>Model: <strong>{{ getTraceModel(step.reasoningTrace) }}</strong></span>
                   <span v-if="getTraceReasoningEffort(step.reasoningTrace)">| Reasoning: <strong>{{ getTraceReasoningEffort(step.reasoningTrace) }}</strong></span>
+                  <span v-if="getTraceWorkerRuntime(step.reasoningTrace)">| Runtime: <strong>{{ formatWorkerRuntime(getTraceWorkerRuntime(step.reasoningTrace)) }}</strong></span>
                 </div>
                 <div v-if="getTraceToolCalls(step.reasoningTrace).length" class="space-y-2">
                   <p class="text-xs font-medium text-blue-600">Tool Calls</p>
@@ -146,6 +148,7 @@ const execution = computed(() => data.value?.execution);
 const steps = computed(() => data.value?.steps ?? []);
 const workflow = computed(() => data.value?.workflow);
 const trigger = computed(() => data.value?.trigger);
+const executionRuntime = computed(() => execution.value?.workflowSnapshot?.workflow?.workerRuntime || workflow.value?.workerRuntime || 'static');
 
 function formatTriggerType(type?: string): string {
   if (!type) return 'unknown';
@@ -166,6 +169,14 @@ function formatTriggerDetail(t: any): string {
   if (cfg.path) return `path: ${cfg.path}`;
   if (cfg.eventType || cfg.eventName) return `event: ${cfg.eventType || cfg.eventName}`;
   return '';
+}
+
+function formatWorkerRuntime(runtime?: string): string {
+  const labels: Record<string, string> = {
+    static: 'Static Worker',
+    ephemeral: 'Ephemeral Worker',
+  };
+  return labels[runtime || 'static'] || runtime || 'Static Worker';
 }
 
 const expandedSteps = ref(new Set<string>());
@@ -200,6 +211,13 @@ function getTraceModel(trace: unknown): string | null {
 function getTraceReasoningEffort(trace: unknown): string | null {
   if (typeof trace === 'object' && trace !== null) {
     return (trace as Record<string, unknown>).reasoningEffort as string ?? null;
+  }
+  return null;
+}
+
+function getTraceWorkerRuntime(trace: unknown): string | null {
+  if (typeof trace === 'object' && trace !== null) {
+    return (trace as Record<string, unknown>).workerRuntime as string ?? null;
   }
   return null;
 }

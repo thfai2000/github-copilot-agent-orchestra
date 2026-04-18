@@ -60,7 +60,7 @@
           <CardDescription>Steps inherit these defaults unless overridden at the step level.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div class="space-y-2">
               <Label>Default Agent</Label>
               <select v-model="form.defaultAgentId"
@@ -87,6 +87,20 @@
                 <option value="low">Low</option>
               </select>
             </div>
+            <div class="space-y-2">
+              <Label>Worker Runtime</Label>
+              <select v-model="form.workerRuntime"
+                class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                <option value="static">Static Worker</option>
+                <option value="ephemeral">Ephemeral Worker (Kubernetes)</option>
+              </select>
+              <p class="text-xs text-muted-foreground">Static uses the shared BullMQ worker pool. Ephemeral starts one Kubernetes pod per step for stronger isolation.</p>
+            </div>
+            <div class="space-y-2">
+              <Label>Step Allocation Timeout (s)</Label>
+              <Input v-model.number="form.stepAllocationTimeoutSeconds" type="number" min="15" max="3600" />
+              <p class="text-xs text-muted-foreground">How long a step can wait for a worker runtime to become ready before the workflow fails.</p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -97,7 +111,7 @@
           <div class="flex items-center justify-between">
             <div>
               <CardTitle>Steps *</CardTitle>
-              <CardDescription>Define the sequential steps for this workflow. Use Jinja2 templating: <code class="bg-muted px-1 rounded text-xs">{{ precedent_output }}</code> for previous step output, <code class="bg-muted px-1 rounded text-xs">{{ inputs.KEY }}</code> for webhook/manual-run parameters, <code class="bg-muted px-1 rounded text-xs">{{ properties.KEY }}</code> and <code class="bg-muted px-1 rounded text-xs">{{ credentials.KEY }}</code> for variables.</CardDescription>
+              <CardDescription>Define the sequential steps for this workflow. Use Jinja2 templating: <code v-pre class="bg-muted px-1 rounded text-xs">{{ precedent_output }}</code> for previous step output, <code v-pre class="bg-muted px-1 rounded text-xs">{{ inputs.KEY }}</code> for webhook/manual-run parameters, <code v-pre class="bg-muted px-1 rounded text-xs">{{ properties.KEY }}</code> and <code v-pre class="bg-muted px-1 rounded text-xs">{{ credentials.KEY }}</code> for variables.</CardDescription>
             </div>
             <Button variant="outline" size="sm" type="button" @click="addStep">+ Add Step</Button>
           </div>
@@ -120,35 +134,47 @@
                 <Textarea v-model="step.promptTemplate" rows="3" required class="font-mono text-xs"
                   placeholder="Jinja2 prompt template: {{ precedent_output }}, {{ properties.KEY }}, {{ credentials.KEY }}" />
               </div>
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div class="space-y-1">
-                  <Label class="text-xs">Agent</Label>
-                  <select v-model="step.agentId" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="">{{ form.defaultAgentId ? 'Use Default' : 'Select...' }}</option>
-                    <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
+              <details class="rounded-md border border-dashed border-border bg-background/60 px-3 py-2">
+                <summary class="cursor-pointer text-xs font-medium text-foreground">Advanced Settings</summary>
+                <p class="mt-1 text-xs text-muted-foreground">Control the agent, model, reasoning, worker runtime, and timeout for this step.</p>
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3">
+                  <div class="space-y-1">
+                    <Label class="text-xs">Agent</Label>
+                    <select v-model="step.agentId" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="">{{ form.defaultAgentId ? 'Use Default' : 'Select...' }}</option>
+                      <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Model</Label>
+                    <select v-model="step.model" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="">{{ form.defaultModel ? 'Use Default' : 'None' }}</option>
+                      <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Reasoning</Label>
+                    <select v-model="step.reasoningEffort" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="">{{ form.defaultReasoningEffort ? 'Use Default' : 'None' }}</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Worker Runtime</Label>
+                    <select v-model="step.workerRuntime" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="">Use Workflow Default</option>
+                      <option value="static">Static Worker</option>
+                      <option value="ephemeral">Ephemeral Worker</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Timeout (s)</Label>
+                    <Input v-model.number="step.timeoutSeconds" type="number" min="30" max="3600" class="text-xs" />
+                  </div>
                 </div>
-                <div class="space-y-1">
-                  <Label class="text-xs">Model</Label>
-                  <select v-model="step.model" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="">{{ form.defaultModel ? 'Use Default' : 'None' }}</option>
-                    <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
-                  </select>
-                </div>
-                <div class="space-y-1">
-                  <Label class="text-xs">Reasoning</Label>
-                  <select v-model="step.reasoningEffort" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="">{{ form.defaultReasoningEffort ? 'Use Default' : 'None' }}</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
-                <div class="space-y-1">
-                  <Label class="text-xs">Timeout (s)</Label>
-                  <Input v-model.number="step.timeoutSeconds" type="number" min="30" max="3600" class="text-xs" />
-                </div>
-              </div>
+              </details>
             </CardContent>
           </Card>
         </CardContent>
@@ -160,7 +186,7 @@
           <div class="flex items-center justify-between">
             <div>
               <CardTitle>Triggers</CardTitle>
-              <CardDescription>A default webhook trigger is pre-filled. The <strong>Manual Run</strong> button on the detail page uses the webhook trigger to collect inputs. Use <code class="bg-muted px-1 rounded text-xs">{{ inputs.PARAM_NAME }}</code> in prompt templates.</CardDescription>
+              <CardDescription>A default webhook trigger is pre-filled. The <strong>Manual Run</strong> button on the detail page uses the webhook trigger to collect inputs. Use <code v-pre class="bg-muted px-1 rounded text-xs">{{ inputs.PARAM_NAME }}</code> in prompt templates. After creation, triggers are immutable: delete and recreate them to change configuration.</CardDescription>
             </div>
             <Button variant="outline" size="sm" type="button" @click="addTrigger">+ Add Trigger</Button>
           </div>
@@ -216,7 +242,7 @@
                   <label class="flex items-center gap-1 text-xs whitespace-nowrap"><input type="checkbox" v-model="param.required" /> Required</label>
                   <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-destructive" type="button" @click="trigger.webhookParams.splice(pi, 1)">×</Button>
                 </div>
-                <p class="text-xs text-muted-foreground">Define inputs for this webhook. Access in prompts: <code class="bg-muted px-1 rounded">{{ inputs.paramName }}</code>. Required parameters are validated on both webhook calls and Manual Run.</p>
+                <p class="text-xs text-muted-foreground">Define inputs for this webhook. Access in prompts: <code v-pre class="bg-muted px-1 rounded">{{ inputs.paramName }}</code>. Required parameters are validated on both webhook calls and Manual Run.</p>
               </div>
               <!-- Event Conditions -->
               <div v-if="trigger.triggerType === 'event'" class="mt-3 space-y-2">
@@ -247,7 +273,7 @@
 </template>
 
 <script setup lang="ts">
-interface StepForm { name: string; promptTemplate: string; agentId: string; model: string; reasoningEffort: string; timeoutSeconds: number; }
+interface StepForm { name: string; promptTemplate: string; agentId: string; model: string; reasoningEffort: string; workerRuntime: string; timeoutSeconds: number; }
 interface WebhookParam { name: string; required: boolean; description: string; }
 interface TriggerForm { triggerType: string; cron: string; webhookPath: string; webhookParams: WebhookParam[]; eventType: string; datetime: string; conditions: Array<{ key: string; value: string }>; }
 
@@ -267,8 +293,10 @@ const form = reactive({
   defaultAgentId: '',
   defaultModel: '',
   defaultReasoningEffort: '',
+  workerRuntime: 'static' as 'static' | 'ephemeral',
+  stepAllocationTimeoutSeconds: 300,
   scope: 'user' as 'user' | 'workspace',
-  steps: [{ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', timeoutSeconds: 300 }] as StepForm[],
+  steps: [{ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', workerRuntime: '', timeoutSeconds: 300 }] as StepForm[],
   triggers: [{ triggerType: 'webhook', cron: '', webhookPath: `/${crypto.randomUUID().slice(0, 12)}`, webhookParams: [] as WebhookParam[], eventType: '', datetime: '', conditions: [] }] as TriggerForm[],
 });
 
@@ -291,7 +319,7 @@ function addLabel() {
 }
 
 function addStep() {
-  form.steps.push({ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', timeoutSeconds: 300 });
+  form.steps.push({ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', workerRuntime: '', timeoutSeconds: 300 });
 }
 function addTrigger() {
   form.triggers.push({ triggerType: 'time_schedule', cron: '', webhookPath: '', webhookParams: [] as WebhookParam[], eventType: '', datetime: '', conditions: [] });
@@ -336,11 +364,13 @@ async function handleCreate() {
         defaultAgentId: form.defaultAgentId || undefined,
         defaultModel: form.defaultModel || undefined,
         defaultReasoningEffort: form.defaultReasoningEffort || undefined,
+        workerRuntime: form.workerRuntime,
+        stepAllocationTimeoutSeconds: form.stepAllocationTimeoutSeconds,
         scope: form.scope,
         steps: form.steps.map((s, i) => ({
           name: s.name, promptTemplate: s.promptTemplate, stepOrder: i + 1,
           agentId: s.agentId || undefined, model: s.model || undefined,
-          reasoningEffort: s.reasoningEffort || undefined, timeoutSeconds: s.timeoutSeconds,
+          reasoningEffort: s.reasoningEffort || undefined, workerRuntime: s.workerRuntime || undefined, timeoutSeconds: s.timeoutSeconds,
         })),
         triggers: triggerPayloads.length > 0 ? triggerPayloads : undefined,
       },

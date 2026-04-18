@@ -46,7 +46,7 @@
         <DialogContent class="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Manual Run</DialogTitle>
-            <DialogDescription v-if="webhookParams.length > 0">Fill in the required inputs. These are available as <code class="bg-muted px-1 rounded text-xs">{{ inputs.PARAM_NAME }}</code> in prompt templates.</DialogDescription>
+            <DialogDescription v-if="webhookParams.length > 0">Fill in the required inputs. These are available as <code v-pre class="bg-muted px-1 rounded text-xs">{{ inputs.PARAM_NAME }}</code> in prompt templates.</DialogDescription>
             <DialogDescription v-else>No parameters defined on the webhook trigger. The workflow will run with empty inputs.</DialogDescription>
           </DialogHeader>
           <div v-if="webhookParams.length > 0" class="space-y-3 py-2">
@@ -102,7 +102,7 @@
             <div>
               <h3 class="text-sm font-semibold mb-1">Workflow Defaults</h3>
               <p class="text-xs text-muted-foreground mb-3">Steps inherit these unless overridden.</p>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div class="space-y-1">
                   <Label class="text-xs">Default Agent</Label>
                   <select v-model="editWfForm.defaultAgentId" class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
@@ -123,6 +123,19 @@
                     <option value="">None</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
                   </select>
                 </div>
+                <div class="space-y-1">
+                  <Label class="text-xs">Worker Runtime</Label>
+                  <select v-model="editWfForm.workerRuntime" class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="static">Static Worker</option>
+                    <option value="ephemeral">Ephemeral Worker (Kubernetes)</option>
+                  </select>
+                  <p class="text-xs text-muted-foreground">Ephemeral runtime creates a dedicated pod for each step execution.</p>
+                </div>
+                <div class="space-y-1">
+                  <Label class="text-xs">Step Allocation Timeout (s)</Label>
+                  <Input v-model.number="editWfForm.stepAllocationTimeoutSeconds" type="number" min="15" max="3600" />
+                  <p class="text-xs text-muted-foreground">A step stays pending until a static worker or ephemeral pod becomes ready, up to this limit.</p>
+                </div>
               </div>
             </div>
             <div class="flex gap-3 pt-2">
@@ -136,10 +149,12 @@
       <!-- View Workflow Details -->
       <div v-else>
         <p v-if="workflow.description" class="text-muted-foreground mb-4">{{ workflow.description }}</p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card><CardHeader class="pb-2"><CardTitle class="text-sm text-muted-foreground">Default Agent</CardTitle></CardHeader><CardContent><p class="font-medium">{{ workflow.defaultAgentId ? (agentNameMap[workflow.defaultAgentId] || workflow.defaultAgentId.substring(0, 8) + '…') : '—' }}</p></CardContent></Card>
           <Card><CardHeader class="pb-2"><CardTitle class="text-sm text-muted-foreground">Default Model</CardTitle></CardHeader><CardContent><p class="font-medium">{{ workflow.defaultModel || '—' }}</p></CardContent></Card>
           <Card><CardHeader class="pb-2"><CardTitle class="text-sm text-muted-foreground">Default Reasoning</CardTitle></CardHeader><CardContent><p class="font-medium capitalize">{{ workflow.defaultReasoningEffort || '—' }}</p></CardContent></Card>
+          <Card><CardHeader class="pb-2"><CardTitle class="text-sm text-muted-foreground">Worker Runtime</CardTitle></CardHeader><CardContent><p class="font-medium">{{ formatWorkerRuntime(workflow.workerRuntime) }}</p></CardContent></Card>
+          <Card><CardHeader class="pb-2"><CardTitle class="text-sm text-muted-foreground">Step Allocation Timeout</CardTitle></CardHeader><CardContent><p class="font-medium">{{ workflow.stepAllocationTimeoutSeconds }}s</p></CardContent></Card>
         </div>
       </div>
 
@@ -162,6 +177,7 @@
                   <div class="flex items-center gap-2 ml-auto">
                     <Badge v-if="step.model" variant="secondary">{{ step.model }}</Badge>
                     <Badge v-if="step.reasoningEffort" variant="outline">{{ step.reasoningEffort }}</Badge>
+                    <Badge variant="outline">{{ formatStepRuntime(step.workerRuntime) }}</Badge>
                     <span class="text-xs text-muted-foreground">{{ step.timeoutSeconds }}s</span>
                   </div>
                 </div>
@@ -183,36 +199,48 @@
                 </div>
                 <Input v-model="step.name" required placeholder="Step name" />
                 <Textarea v-model="step.promptTemplate" rows="3" required class="font-mono text-xs" placeholder="Jinja2 prompt template: {{ precedent_output }}, {{ properties.KEY }}, {{ credentials.KEY }}" />
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div class="space-y-1">
-                    <Label class="text-xs">Agent</Label>
-                    <select v-model="step.agentId" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                      <option value="">{{ workflow?.defaultAgentId ? 'Use Default' : 'Select…' }}</option>
-                      <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-                    </select>
+                <details class="rounded-md border border-dashed border-border bg-background/60 px-3 py-2">
+                  <summary class="cursor-pointer text-xs font-medium text-foreground">Advanced Settings</summary>
+                  <p class="mt-1 text-xs text-muted-foreground">Control the agent, model, reasoning, worker runtime, and timeout for this step.</p>
+                  <div class="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3">
+                    <div class="space-y-1">
+                      <Label class="text-xs">Agent</Label>
+                      <select v-model="step.agentId" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                        <option value="">{{ workflow?.defaultAgentId ? 'Use Default' : 'Select…' }}</option>
+                        <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+                      </select>
+                    </div>
+                    <div class="space-y-1">
+                      <Label class="text-xs">Model</Label>
+                      <select v-model="step.model" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                        <option value="">{{ workflow?.defaultModel ? 'Use Default' : 'None' }}</option>
+                        <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
+                      </select>
+                    </div>
+                    <div class="space-y-1">
+                      <Label class="text-xs">Reasoning</Label>
+                      <select v-model="step.reasoningEffort" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                        <option value="">{{ workflow?.defaultReasoningEffort ? 'Use Default' : 'None' }}</option>
+                        <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+                      </select>
+                    </div>
+                    <div class="space-y-1">
+                      <Label class="text-xs">Worker Runtime</Label>
+                      <select v-model="step.workerRuntime" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                        <option value="">Use Workflow Default</option>
+                        <option value="static">Static Worker</option>
+                        <option value="ephemeral">Ephemeral Worker</option>
+                      </select>
+                    </div>
+                    <div class="space-y-1">
+                      <Label class="text-xs">Timeout (s)</Label>
+                      <Input v-model.number="step.timeoutSeconds" type="number" min="30" max="3600" class="text-xs" />
+                    </div>
                   </div>
-                  <div class="space-y-1">
-                    <Label class="text-xs">Model</Label>
-                    <select v-model="step.model" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                      <option value="">{{ workflow?.defaultModel ? 'Use Default' : 'None' }}</option>
-                      <option v-for="m in availableModels" :key="m.id" :value="m.name">{{ m.name }}</option>
-                    </select>
-                  </div>
-                  <div class="space-y-1">
-                    <Label class="text-xs">Reasoning</Label>
-                    <select v-model="step.reasoningEffort" class="w-full px-2 py-1.5 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                      <option value="">{{ workflow?.defaultReasoningEffort ? 'Use Default' : 'None' }}</option>
-                      <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
-                    </select>
-                  </div>
-                  <div class="space-y-1">
-                    <Label class="text-xs">Timeout (s)</Label>
-                    <Input v-model.number="step.timeoutSeconds" type="number" min="30" max="3600" class="text-xs" />
-                  </div>
-                </div>
+                </details>
               </CardContent>
             </Card>
-            <Button variant="ghost" size="sm" @click="editStepForm.push({ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', timeoutSeconds: 300 })">+ Add Step</Button>
+            <Button variant="ghost" size="sm" @click="editStepForm.push({ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', workerRuntime: '', timeoutSeconds: 300 })">+ Add Step</Button>
             <div class="flex gap-2 pt-2">
               <Button :disabled="savingSteps" @click="handleSaveSteps">{{ savingSteps ? 'Saving…' : 'Save Steps' }}</Button>
               <Button variant="outline" @click="editingSteps = false">Cancel</Button>
@@ -227,7 +255,7 @@
           <div class="flex items-center justify-between">
             <div>
               <CardTitle>Triggers</CardTitle>
-              <CardDescription>Add a webhook trigger to enable <strong>Manual Run</strong>. Webhook parameters define the input fields shown during Manual Run.</CardDescription>
+              <CardDescription>Add a webhook trigger to enable <strong>Manual Run</strong>. Webhook parameters define the input fields shown during Manual Run. Triggers are immutable after creation, so delete and recreate them to change configuration.</CardDescription>
             </div>
             <Button variant="outline" size="sm" @click="showTriggerForm = true">+ Add Trigger</Button>
           </div>
@@ -281,7 +309,7 @@
                     <label class="flex items-center gap-1 text-xs whitespace-nowrap"><input type="checkbox" v-model="param.required" /> Required</label>
                     <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-destructive" type="button" @click="triggerForm.webhookParams.splice(pi, 1)">×</Button>
                   </div>
-                  <p class="text-xs text-muted-foreground">Define inputs for this webhook. Access in prompts: <code class="bg-muted px-1 rounded">{{ inputs.paramName }}</code>. Required parameters are validated.</p>
+                  <p class="text-xs text-muted-foreground">Define inputs for this webhook. Access in prompts: <code v-pre class="bg-muted px-1 rounded">{{ inputs.paramName }}</code>. Required parameters are validated.</p>
                 </div>
                 <!-- Event Conditions -->
                 <div v-if="triggerForm.triggerType === 'event'" class="space-y-2">
@@ -333,6 +361,7 @@ interface EditStep {
   agentId: string;
   model: string;
   reasoningEffort: string;
+  workerRuntime: string;
   timeoutSeconds: number;
 }
 
@@ -386,6 +415,18 @@ function formatTriggerType(type: string): string {
   return labels[type] || type;
 }
 
+function formatWorkerRuntime(runtime?: string): string {
+  const labels: Record<string, string> = {
+    static: 'Static Worker',
+    ephemeral: 'Ephemeral Worker',
+  };
+  return labels[runtime || 'static'] || runtime || 'Static Worker';
+}
+
+function formatStepRuntime(runtime?: string | null): string {
+  return runtime ? formatWorkerRuntime(runtime) : `Workflow Default · ${formatWorkerRuntime(workflow.value?.workerRuntime)}`;
+}
+
 // ── Workflow Edit ────────────────────────────────────────────────
 const editingWorkflow = ref(false);
 const savingWf = ref(false);
@@ -398,6 +439,8 @@ const editWfForm = reactive({
   defaultAgentId: '',
   defaultModel: '',
   defaultReasoningEffort: '',
+  workerRuntime: 'static' as 'static' | 'ephemeral',
+  stepAllocationTimeoutSeconds: 300,
 });
 
 function startEditWorkflow() {
@@ -408,6 +451,8 @@ function startEditWorkflow() {
     defaultAgentId: workflow.value?.defaultAgentId || '',
     defaultModel: workflow.value?.defaultModel || '',
     defaultReasoningEffort: workflow.value?.defaultReasoningEffort || '',
+    workerRuntime: workflow.value?.workerRuntime || 'static',
+    stepAllocationTimeoutSeconds: workflow.value?.stepAllocationTimeoutSeconds || 300,
   });
   editNewLabel.value = '';
   editWfError.value = '';
@@ -436,6 +481,8 @@ async function handleSaveWorkflow() {
         defaultAgentId: editWfForm.defaultAgentId || null,
         defaultModel: editWfForm.defaultModel || null,
         defaultReasoningEffort: editWfForm.defaultReasoningEffort || null,
+        workerRuntime: editWfForm.workerRuntime,
+        stepAllocationTimeoutSeconds: editWfForm.stepAllocationTimeoutSeconds,
       },
     });
     editingWorkflow.value = false;
@@ -556,6 +603,7 @@ function startEditSteps() {
     agentId: s.agentId || '',
     model: s.model || '',
     reasoningEffort: s.reasoningEffort || '',
+    workerRuntime: s.workerRuntime || '',
     timeoutSeconds: s.timeoutSeconds || 300,
   }));
   editStepError.value = '';
@@ -577,6 +625,7 @@ async function handleSaveSteps() {
           agentId: s.agentId || undefined,
           model: s.model || undefined,
           reasoningEffort: s.reasoningEffort || undefined,
+          workerRuntime: s.workerRuntime || undefined,
           timeoutSeconds: s.timeoutSeconds,
         })),
       },

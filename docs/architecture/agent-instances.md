@@ -1,6 +1,6 @@
 # Agent Instances
 
-Following a **Jenkins Controller + Agent** pattern, workflow steps are executed by **Agent Instances**. Static workers and ephemeral pods run simultaneously — there is no mode switch.
+Following a **Jenkins Controller + Agent** pattern, workflow steps are executed by **Agent Instances**. Each workflow now chooses its **Worker Runtime**: `static` or `ephemeral`.
 
 For the system-wide architecture and component diagram, see [System Overview](/architecture/overview).
 
@@ -12,6 +12,7 @@ Pre-provisioned, long-running worker processes. Each static instance connects to
 - Send periodic heartbeats (15s interval); marked offline if stale (60s threshold)
 - Scale horizontally by running more worker containers/processes
 - Managed via the Instances page in the UI
+- Selected by workflows whose `workerRuntime` is `static`
 
 ```mermaid
 sequenceDiagram
@@ -35,8 +36,9 @@ Short-lived instances created on-demand per workflow step. The controller create
 
 - Requires Kubernetes with RBAC for pod management
 - Provides strong workload isolation (each step = separate container)
-- Max concurrent instances controlled via Redis semaphore (`MAX_CONCURRENT_AGENTS`)
+- Pod creation starts immediately for each ephemeral step; readiness is bounded by the workflow's step allocation timeout
 - Pods are auto-cleaned after completion
+- Selected by workflows whose `workerRuntime` is `ephemeral`
 
 ```mermaid
 sequenceDiagram
@@ -84,7 +86,7 @@ Agent instances (both static and ephemeral) **do not expose any inbound network 
 | **Controller (Poller)** | Leader election — 1 active + N standby | Only one instance polls; extras provide automatic failover |
 | **Controller (Worker)** | BullMQ concurrency per instance | Each instance processes 1 job at a time; add instances for throughput |
 | **Static Agent Workers** | Horizontal scaling | Add more worker containers; each listens on the same BullMQ queue |
-| **Ephemeral Instances** | Dynamic provisioning + semaphore | Max concurrent agents configurable via `MAX_CONCURRENT_AGENTS` (default: 10) |
+| **Ephemeral Instances** | Dynamic provisioning | Each ephemeral step creates its own pod and waits on pod readiness within the workflow allocation timeout |
 | **OAO-API** | Horizontal scaling (HPA) | Stateless HTTP handlers; scale freely behind a load balancer |
 | **OAO-UI** | Horizontal scaling (HPA) | Stateless Nuxt SSR; scale freely |
 

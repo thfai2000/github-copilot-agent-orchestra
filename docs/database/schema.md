@@ -48,6 +48,7 @@ erDiagram
 | `agent_source_type` | `github_repo`, `database` |
 | `variable_type` | `property`, `credential` |
 | `reasoning_effort` | `low`, `medium`, `high` |
+| `worker_runtime` | `static`, `ephemeral` |
 | `resource_scope` | `user`, `workspace` |
 | `auth_provider_type` | `database`, `ldap` |
 | `event_scope` | `workspace`, `user` |
@@ -66,6 +67,8 @@ erDiagram
 - **Personal Access Tokens** — SHA-256 hashed, fine-grained scopes, optional expiry
 
 ## Table Reference
+
+`workflow_executions.workflowSnapshot` preserves workflow-level allocation timeout plus any step-level worker runtime overrides so retries and history remain stable even after later edits.
 
 For full table definitions, see:
 

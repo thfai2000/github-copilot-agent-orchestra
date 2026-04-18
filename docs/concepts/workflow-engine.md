@@ -35,7 +35,6 @@ graph TB
     subgraph "Redis"
         LOCK["controller:leader lock"]
         CURSOR["controller:last-event-cursor"]
-        SLOTS["controller:agent-slots<br/>(semaphore)"]
         QUEUE["BullMQ queue:<br/>workflow-execution"]
     end
 
@@ -51,7 +50,6 @@ graph TB
     AP -->|"writes results"| EXECS
     LEADER -.->|"SETNX + EXPIRE"| LOCK
     POLL -.->|"cursor tracking"| CURSOR
-    WORKER -.->|"slot semaphore"| SLOTS
 
     style LEADER fill:#2196F3,color:#fff
     style POLL fill:#FF9800,color:#fff
@@ -210,21 +208,24 @@ A single run of a workflow:
 
 ### Execution Pipeline
 
-When the BullMQ worker picks up a job, it orchestrates the workflow by **dispatching each step to an agent worker**:
+When the BullMQ worker picks up a job, it orchestrates the workflow by **dispatching each step according to its resolved runtime**:
 
 ```mermaid
 graph TB
     START[Worker picks up job] --> MARK[Mark execution as running]
     MARK --> LOOP{Next step?}
-    LOOP -->|yes| DISPATCH[Dispatch step to agent worker<br/>via BullMQ queue]
-    DISPATCH --> WAIT[Wait for completion<br/>poll status every 3s]
+    LOOP -->|yes| DISPATCH[Resolve step runtime<br/>static queue or ephemeral pod]
+    DISPATCH --> ALLOCATE[Wait for allocation<br/>step stays pending]
+    ALLOCATE -->|allocated| WAIT[Wait for execution<br/>poll status every 3s]
     WAIT -->|succeeded| LOOP
     WAIT -->|failed| FAIL[Mark step + execution failed<br/>skip remaining steps]
-    DISPATCH -->|timeout| FAIL
+    ALLOCATE -->|allocation timeout| FAIL
+    WAIT -->|execution timeout| FAIL
     LOOP -->|no more steps| DONE[Mark execution completed]
 
     style START fill:#FF9800,color:#fff
     style DISPATCH fill:#9C27B0,color:#fff
+    style ALLOCATE fill:#607D8B,color:#fff
     style DONE fill:#4CAF50,color:#fff
     style FAIL fill:#e53935,color:#fff
 ```
@@ -247,6 +248,27 @@ sequenceDiagram
 ```
 
 Each agent can only have **one active Copilot session at a time**. This prevents conflicting tool calls and ensures agent state consistency. The lock uses Redis `SETNX` with a 10-minute TTL and a Lua-script-based safe release (compare-and-delete) to prevent releasing another worker's lock after TTL expiry.
+
+When a step reaches an agent that is already busy, the worker waits for the session lock to clear for a short grace window before failing. The step execution timeout budget includes this lock-wait window plus a small completion grace period so retries are less likely to race the previous session's cleanup. The lock is released in a shared cleanup path even if workspace preparation or Git clone fails before the Copilot session is created.
+
+### Allocation Semantics
+
+- **Static runtime**: the step is queued on `agent-step-execution` and remains `pending` until a static worker transitions it to `running`.
+- **Ephemeral runtime**: the controller creates a dedicated pod immediately and the step remains `pending` until that pod is ready enough to start the step.
+- **Allocation timeout**: if a step does not leave `pending` before `stepAllocationTimeoutSeconds`, the engine marks the step and workflow execution as failed.
+- **Execution timeout**: once the step is `running`, the normal step timeout applies.
+
+### Runtime Selection
+
+The dispatcher resolves the runtime in this order:
+
+1. `workflow_execution.workflowSnapshot.steps[].workerRuntime` — immutable step override at trigger time
+2. `workflow_execution.workflowSnapshot.workflow.workerRuntime` — immutable workflow default at trigger time
+3. Current `workflow_step.workerRuntime` record (fallback for older executions)
+4. Current `workflow.workerRuntime` record (fallback for older executions)
+5. Default: `static`
+
+This means historical executions continue to report and use the runtime that was active when they were enqueued.
 
 ### Retry Mechanism
 

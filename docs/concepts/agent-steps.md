@@ -128,6 +128,8 @@ Before creating a Copilot session, the worker acquires a Redis distributed lock:
 
 This ensures **one active Copilot session per agent** at any time.
 
+If another execution is already using the same agent, the worker now waits briefly for the active session to finish before failing the step. This reduces false retry failures during session shutdown or near timeout boundaries.
+
 ## 6. Copilot Session Setup
 
 The session is created with the GitHub Copilot SDK (`@github/copilot-sdk`):

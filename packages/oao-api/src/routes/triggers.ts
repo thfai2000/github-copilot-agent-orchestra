@@ -109,27 +109,15 @@ triggersRouter.post('/', async (c) => {
   return c.json({ trigger }, 201);
 });
 
-// PUT /:id — update trigger (workspace-scoped)
-const updateTriggerSchema = z.object({
-  configuration: z.record(z.unknown()).optional(),
-  isActive: z.boolean().optional(),
-});
-
+// PUT /:id — triggers are immutable after creation
 triggersRouter.put('/:id', async (c) => {
   const user = c.get('user');
   const id = uuidSchema.parse(c.req.param('id'));
-  const body = updateTriggerSchema.parse(await c.req.json());
 
   const access = await verifyTriggerAccess(id, user.workspaceId, user.userId, user.role);
   if (!access) return c.json({ error: 'Trigger not found' }, 404);
 
-  // Only admins or workflow owner can modify
-  if (access.workflow.scope === 'workspace' && user.role !== 'workspace_admin' && user.role !== 'super_admin') {
-    return c.json({ error: 'Only admins can modify workspace-level workflow triggers' }, 403);
-  }
-
-  const [updated] = await db.update(triggers).set(body).where(eq(triggers.id, id)).returning();
-  return c.json({ trigger: updated });
+  return c.json({ error: 'Triggers are immutable after creation. Delete and recreate the trigger to change it.' }, 405);
 });
 
 // DELETE /:id (workspace-scoped)

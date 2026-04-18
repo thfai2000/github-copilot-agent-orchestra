@@ -207,15 +207,15 @@
           <Card>
             <CardHeader>
               <CardTitle>MCP JSON Template</CardTitle>
-              <CardDescription>Jinja2 template that renders to a <code class="bg-muted px-1 rounded text-xs">mcp.json</code> configuration. MCP servers defined here are spawned during Copilot sessions. Use <code class="bg-muted px-1 rounded text-xs">{{ properties.KEY }}</code> and <code class="bg-muted px-1 rounded text-xs">{{ credentials.KEY }}</code> for variable substitution.</CardDescription>
+              <CardDescription>Jinja2 template that renders to a <code class="bg-muted px-1 rounded text-xs">mcp.json</code> configuration. MCP servers defined here are spawned during Copilot sessions. Use <code v-pre class="bg-muted px-1 rounded text-xs">{{ properties.KEY }}</code> and <code v-pre class="bg-muted px-1 rounded text-xs">{{ credentials.KEY }}</code> for variable substitution.</CardDescription>
             </CardHeader>
             <CardContent class="space-y-3">
               <Textarea v-model="editForm.mcpJsonTemplate" rows="12" class="font-mono text-xs"
                 :placeholder="mcpTemplatePlaceholder" />
               <div class="p-3 rounded-md bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-700 dark:text-blue-300 space-y-1">
                 <p><strong>Jinja2 Variables:</strong></p>
-                <p><code class="bg-blue-100 dark:bg-blue-900 px-1 rounded">{{ properties.KEY }}</code> &mdash; Agent/user/workspace properties</p>
-                <p><code class="bg-blue-100 dark:bg-blue-900 px-1 rounded">{{ credentials.KEY }}</code> &mdash; Agent/user/workspace credentials</p>
+                <p><code v-pre class="bg-blue-100 dark:bg-blue-900 px-1 rounded">{{ properties.KEY }}</code> &mdash; Agent/user/workspace properties</p>
+                <p><code v-pre class="bg-blue-100 dark:bg-blue-900 px-1 rounded">{{ credentials.KEY }}</code> &mdash; Agent/user/workspace credentials</p>
                 <p>The rendered output must be valid JSON with a <code class="bg-blue-100 dark:bg-blue-900 px-1 rounded">mcpServers</code> key mapping server names to <code class="bg-blue-100 dark:bg-blue-900 px-1 rounded">{ command, args?, env? }</code> objects.</p>
               </div>
             </CardContent>
@@ -341,7 +341,7 @@
                 <Label class="text-xs">Inject as .env variable in Copilot session workspace</Label>
               </div>
               <div v-if="varForm.variableType === 'property'" class="p-3 rounded-md bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-700 dark:text-blue-300">
-                &#x1f4a1; <strong>Tip:</strong> Properties can be referenced in agent prompt templates using <code class="bg-blue-100 dark:bg-blue-900 px-1 rounded">{{ properties.KEY_NAME }}</code>
+                &#x1f4a1; <strong>Tip:</strong> Properties can be referenced in agent prompt templates using <code v-pre class="bg-blue-100 dark:bg-blue-900 px-1 rounded">{{ properties.KEY_NAME }}</code>
               </div>
               <div class="flex gap-2">
                 <Button type="submit" size="sm" :disabled="savingVar">{{ savingVar ? 'Saving...' : 'Save Variable' }}</Button>

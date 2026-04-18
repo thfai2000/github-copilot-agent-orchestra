@@ -143,20 +143,29 @@ async function run() {
     }
 
     // 8. Mark step as running
-    await db
+    const startedStep = await db
       .update(stepExecutions)
       .set({ status: 'running', resolvedPrompt: step.promptTemplate, startedAt: new Date() })
-      .where(eq(stepExecutions.id, stepExecutionId));
+      .where(and(eq(stepExecutions.id, stepExecutionId), eq(stepExecutions.status, 'pending')))
+      .returning({ id: stepExecutions.id });
+
+    if (startedStep.length === 0) {
+      logger.warn({ stepExecutionId }, 'Step could not transition to running, exiting orphaned ephemeral runner');
+      process.exit(0);
+      return;
+    }
 
     // 9. Execute the Copilot session
     const result = await executeCopilotSession({
       agent,
       step,
+      stepExecutionId,
       resolvedPrompt: step.promptTemplate,
       precedentOutput,
       credentials: mergedCredentials,
       properties: mergedProperties,
       envVariables: mergedEnvVars,
+      workerRuntime: 'ephemeral',
       inputs,
       workflowId: workflow.id,
       workspaceId: workflow.workspaceId ?? '',
@@ -165,6 +174,27 @@ async function run() {
       workflowDefaultModel: workflow.defaultModel,
       workflowDefaultReasoningEffort: workflow.defaultReasoningEffort,
     });
+
+    const latestStepExec = await db.query.stepExecutions.findFirst({
+      where: eq(stepExecutions.id, stepExecutionId),
+    });
+    const latestExecution = await db.query.workflowExecutions.findFirst({
+      where: eq(workflowExecutions.id, executionId),
+    });
+
+    if (
+      latestStepExec?.status === 'failed'
+      || latestStepExec?.status === 'skipped'
+      || latestExecution?.status === 'failed'
+      || latestExecution?.status === 'cancelled'
+    ) {
+      logger.warn(
+        { stepExecutionId, executionId, stepStatus: latestStepExec?.status, executionStatus: latestExecution?.status },
+        'Late step result ignored because the step or execution is already terminal',
+      );
+      process.exit(0);
+      return;
+    }
 
     // 10. Write success result to DB (include actual rendered prompt)
     await db

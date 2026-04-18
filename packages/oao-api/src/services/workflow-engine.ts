@@ -23,7 +23,7 @@ import { createAgentTools } from './agent-tools.js';
 import { connectToMcpServer } from './mcp-client.js';
 import { renderTemplate, buildTemplateContext } from './jinja-renderer.js';
 
-import { createAgentPod, waitForPodCompletion, deleteAgentPod, acquireAgentSlot, releaseAgentSlot } from './k8s-provisioner.js';
+import { createAgentPod, waitForPodCompletion, deleteAgentPod } from './k8s-provisioner.js';
 import { registerEphemeralInstance, terminateEphemeralInstance } from './agent-instance-registry.js';
 import { AGENT_STEP_QUEUE } from '../workers/agent-worker.js';
 
@@ -33,16 +33,176 @@ const logger = createLogger('workflow-engine');
 
 const SESSION_LOCK_PREFIX = 'agent-session-lock:';
 const SESSION_LOCK_TTL_SECONDS = 600; // 10 minutes
+const SESSION_LOCK_WAIT_SECONDS = parseInt(process.env.AGENT_SESSION_LOCK_WAIT_SECONDS || '60', 10);
+const SESSION_LOCK_POLL_MS = 1000;
+const STEP_COMPLETION_GRACE_SECONDS = parseInt(process.env.STEP_COMPLETION_GRACE_SECONDS || '30', 10);
+const DEFAULT_STEP_ALLOCATION_TIMEOUT_SECONDS = parseInt(process.env.DEFAULT_STEP_ALLOCATION_TIMEOUT_SECONDS || '300', 10);
+const STEP_STATUS_POLL_MS = 3000;
+
+interface SessionLockInfo {
+  agentId: string;
+  agentName: string;
+  executionId: string;
+  stepExecutionId?: string;
+  workflowId: string;
+  workerRuntime: 'static' | 'ephemeral';
+  stepName: string;
+  acquiredAt: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildSessionLockValue(info: SessionLockInfo): string {
+  return JSON.stringify(info);
+}
+
+function parseSessionLockInfo(value: string | null): SessionLockInfo | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as SessionLockInfo;
+  } catch {
+    return null;
+  }
+}
+
+async function getSessionLockInfo(agentId: string): Promise<SessionLockInfo | null> {
+  const redis = getRedisConnection();
+  const key = `${SESSION_LOCK_PREFIX}${agentId}`;
+  const current = await redis.get(key);
+  return parseSessionLockInfo(current);
+}
+
+function getStepExecutionBudgetSeconds(timeoutSeconds: number | null): number {
+  return (timeoutSeconds ?? 600) + SESSION_LOCK_WAIT_SECONDS + STEP_COMPLETION_GRACE_SECONDS;
+}
+
+function parseWorkerRuntime(value: unknown): 'static' | 'ephemeral' | null {
+  return value === 'static' || value === 'ephemeral' ? value : null;
+}
+
+function parsePositiveInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.floor(value);
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+function getWorkflowSnapshotConfig(execution: typeof workflowExecutions.$inferSelect): Record<string, unknown> | null {
+  const snapshot = execution.workflowSnapshot as Record<string, unknown> | null;
+  const workflowConfig = snapshot?.workflow;
+  return workflowConfig && typeof workflowConfig === 'object'
+    ? workflowConfig as Record<string, unknown>
+    : null;
+}
+
+function getStepSnapshotConfig(
+  execution: typeof workflowExecutions.$inferSelect,
+  step: typeof workflowSteps.$inferSelect,
+): Record<string, unknown> | null {
+  const snapshot = execution.workflowSnapshot as Record<string, unknown> | null;
+  const steps = snapshot?.steps;
+  if (!Array.isArray(steps)) return null;
+
+  const match = steps.find((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return false;
+    const snapshotStep = candidate as Record<string, unknown>;
+    return snapshotStep.id === step.id || snapshotStep.stepOrder === step.stepOrder;
+  });
+
+  return match && typeof match === 'object' ? match as Record<string, unknown> : null;
+}
+
+function resolveStepWorkerRuntime(
+  execution: typeof workflowExecutions.$inferSelect,
+  workflow: typeof workflows.$inferSelect,
+  step: typeof workflowSteps.$inferSelect,
+): 'static' | 'ephemeral' {
+  const workflowSnapshot = getWorkflowSnapshotConfig(execution);
+  const stepSnapshot = getStepSnapshotConfig(execution, step);
+
+  return (
+    parseWorkerRuntime(stepSnapshot?.workerRuntime)
+    ?? parseWorkerRuntime(workflowSnapshot?.workerRuntime)
+    ?? parseWorkerRuntime(step.workerRuntime)
+    ?? parseWorkerRuntime(workflow.workerRuntime)
+    ?? 'static'
+  );
+}
+
+function resolveStepAllocationTimeoutSeconds(
+  execution: typeof workflowExecutions.$inferSelect,
+  workflow: typeof workflows.$inferSelect,
+): number {
+  const workflowSnapshot = getWorkflowSnapshotConfig(execution);
+
+  return (
+    parsePositiveInt(workflowSnapshot?.stepAllocationTimeoutSeconds)
+    ?? workflow.stepAllocationTimeoutSeconds
+    ?? DEFAULT_STEP_ALLOCATION_TIMEOUT_SECONDS
+  );
+}
+
+async function getStepExecutionRecord(stepExecutionId: string) {
+  return db.query.stepExecutions.findFirst({
+    where: eq(stepExecutions.id, stepExecutionId),
+  });
+}
+
+async function waitForStepAllocation(
+  stepExecutionId: string,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<typeof stepExecutions.$inferSelect> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const updated = await getStepExecutionRecord(stepExecutionId);
+    if (!updated) throw new Error(`Step execution ${stepExecutionId} not found`);
+
+    if (updated.status === 'running' || updated.status === 'completed' || updated.status === 'failed') {
+      return updated;
+    }
+
+    await sleep(STEP_STATUS_POLL_MS);
+  }
+
+  throw new Error(timeoutMessage);
+}
+
+async function waitForStepCompletion(
+  stepExecutionId: string,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<typeof stepExecutions.$inferSelect> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const updated = await getStepExecutionRecord(stepExecutionId);
+    if (!updated) throw new Error(`Step execution ${stepExecutionId} not found`);
+
+    if (updated.status === 'completed' || updated.status === 'failed') {
+      return updated;
+    }
+
+    await sleep(STEP_STATUS_POLL_MS);
+  }
+
+  throw new Error(timeoutMessage);
+}
 
 /**
  * Acquire a Redis distributed lock to prevent concurrent Copilot sessions
  * for the same agent. Uses SET NX with TTL for automatic expiry.
  * Returns a unique lock value for owner-aware release.
  */
-async function acquireSessionLock(agentId: string): Promise<string | null> {
+async function acquireSessionLock(agentId: string, info: SessionLockInfo): Promise<string | null> {
   const redis = getRedisConnection();
   const key = `${SESSION_LOCK_PREFIX}${agentId}`;
-  const lockValue = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const lockValue = buildSessionLockValue(info);
   const result = await redis.set(key, lockValue, 'EX', SESSION_LOCK_TTL_SECONDS, 'NX');
   return result === 'OK' ? lockValue : null;
 }
@@ -66,6 +226,22 @@ async function extendSessionLock(agentId: string): Promise<void> {
   const redis = getRedisConnection();
   const key = `${SESSION_LOCK_PREFIX}${agentId}`;
   await redis.expire(key, SESSION_LOCK_TTL_SECONDS);
+}
+
+async function acquireSessionLockWithWait(agentId: string, info: SessionLockInfo): Promise<{ lockValue: string | null; blockingSession: SessionLockInfo | null }> {
+  const waitDeadline = Date.now() + SESSION_LOCK_WAIT_SECONDS * 1000;
+  let blockingSession: SessionLockInfo | null = null;
+
+  while (Date.now() <= waitDeadline) {
+    const lockValue = await acquireSessionLock(agentId, info);
+    if (lockValue) return { lockValue, blockingSession: null };
+
+    blockingSession = await getSessionLockInfo(agentId);
+    if (Date.now() + SESSION_LOCK_POLL_MS > waitDeadline) break;
+    await sleep(SESSION_LOCK_POLL_MS);
+  }
+
+  return { lockValue: null, blockingSession };
 }
 
 let workflowQueue: Queue | null = null;
@@ -125,6 +301,8 @@ export async function enqueueWorkflowExecution(
       defaultAgentId: workflow.defaultAgentId,
       defaultModel: workflow.defaultModel,
       defaultReasoningEffort: workflow.defaultReasoningEffort,
+      workerRuntime: workflow.workerRuntime,
+      stepAllocationTimeoutSeconds: workflow.stepAllocationTimeoutSeconds,
     },
     steps: steps.map((s) => ({
       id: s.id,
@@ -134,6 +312,7 @@ export async function enqueueWorkflowExecution(
       agentId: s.agentId,
       model: s.model,
       reasoningEffort: s.reasoningEffort,
+      workerRuntime: s.workerRuntime,
       timeoutSeconds: s.timeoutSeconds,
     })),
   };
@@ -297,6 +476,8 @@ export async function executeWorkflow(executionId: string, startFromStep = 0) {
     orderBy: stepExecutions.stepOrder,
   });
 
+  const allocationTimeoutSeconds = resolveStepAllocationTimeoutSeconds(execution, workflow);
+
   // Mark execution as running
   await db
     .update(workflowExecutions)
@@ -333,10 +514,22 @@ export async function executeWorkflow(executionId: string, startFromStep = 0) {
     }
 
     try {
-      // Always dispatch to static agent workers via BullMQ queue.
-      // Ephemeral K8s pod execution is handled by the controller when
-      // the Kubernetes API is available (per-step isolation option).
-      await executeStepStatic(stepExec, step, executionId, stepExecs, i);
+      const stepWorkerRuntime = resolveStepWorkerRuntime(execution, workflow, step);
+
+      if (stepWorkerRuntime === 'ephemeral') {
+        await executeStepEphemeral(
+          stepExec,
+          step,
+          stepAgent,
+          executionId,
+          workflow.id,
+          allocationTimeoutSeconds,
+          stepExecs,
+          i,
+        );
+      } else {
+        await executeStepStatic(stepExec, step, executionId, allocationTimeoutSeconds, stepExecs, i);
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       await markStepAndExecutionFailed(stepExec.id, executionId, stepExecs, i, errorMsg);
@@ -393,12 +586,13 @@ async function executeStepStatic(
   stepExec: { id: string },
   step: { timeoutSeconds: number | null },
   executionId: string,
+  allocationTimeoutSeconds: number,
   _stepExecs: Array<{ id: string }>,
   _stepIndex: number,
 ): Promise<void> {
   const queue = getStepQueue();
-  const timeout = (step.timeoutSeconds ?? 600) * 1000;
-  const pollInterval = 3000; // 3 seconds
+  const allocationTimeoutMs = allocationTimeoutSeconds * 1000;
+  const executionTimeoutMs = getStepExecutionBudgetSeconds(step.timeoutSeconds) * 1000;
 
   // Enqueue the step execution job for a static agent worker to pick up
   await queue.add('step-execution', {
@@ -406,24 +600,26 @@ async function executeStepStatic(
     executionId,
   });
 
-  logger.info({ stepExecutionId: stepExec.id, executionId }, 'Step enqueued for static agent');
+  logger.info(
+    { stepExecutionId: stepExec.id, executionId, allocationTimeoutSeconds },
+    'Step enqueued for static agent allocation',
+  );
 
-  // Poll DB for step completion
-  const startTime = Date.now();
-  while (Date.now() - startTime < timeout) {
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+  const allocatedStep = await waitForStepAllocation(
+    stepExec.id,
+    allocationTimeoutMs,
+    `Timed out waiting ${allocationTimeoutSeconds}s to allocate the step to an available static worker.`,
+  );
 
-    const updated = await db.query.stepExecutions.findFirst({
-      where: eq(stepExecutions.id, stepExec.id),
-    });
-
-    if (updated?.status === 'completed' || updated?.status === 'failed') {
-      return; // Step finished — caller will check the status
-    }
+  if (allocatedStep.status === 'completed' || allocatedStep.status === 'failed') {
+    return;
   }
 
-  // Timeout
-  throw new Error('Step execution timed out waiting for static agent worker');
+  await waitForStepCompletion(
+    stepExec.id,
+    executionTimeoutMs,
+    'Step execution timed out after allocation to a static worker',
+  );
 }
 
 // ─── Step Execution: Ephemeral Mode ───────────────────────────────────
@@ -433,32 +629,18 @@ async function executeStepStatic(
  * Currently unused — all steps route through static workers.
  * Retained for future per-step ephemeral isolation support.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function executeStepEphemeral(
   stepExec: { id: string },
   step: { stepOrder: number; timeoutSeconds: number | null },
   stepAgent: { id: string; name: string },
   executionId: string,
   workflowId: string,
+  allocationTimeoutSeconds: number,
   _stepExecs: Array<{ id: string }>,
   _stepIndex: number,
 ): Promise<void> {
-  // Acquire an agent slot (semaphore for max concurrent agents)
-  let slotAcquired = false;
-  const maxWait = 300_000; // 5 minutes
-  const slotStart = Date.now();
-  while (!slotAcquired && Date.now() - slotStart < maxWait) {
-    slotAcquired = await acquireAgentSlot();
-    if (!slotAcquired) {
-      logger.debug({ stepExecutionId: stepExec.id }, 'Waiting for agent slot...');
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-  }
-  if (!slotAcquired) {
-    throw new Error('Timed out waiting for available agent slot (max concurrent agents reached)');
-  }
-
   let podName: string | null = null;
+  const executionBudgetSeconds = getStepExecutionBudgetSeconds(step.timeoutSeconds);
   try {
     // Create a dedicated K8s pod for this step
     podName = await createAgentPod({
@@ -468,27 +650,50 @@ async function executeStepEphemeral(
       stepOrder: step.stepOrder,
       agentId: stepAgent.id,
       agentName: stepAgent.name,
-      timeoutSeconds: step.timeoutSeconds ?? 600,
+      timeoutSeconds: allocationTimeoutSeconds + executionBudgetSeconds,
     });
 
     // Register in instance registry
     await registerEphemeralInstance(podName, stepExec.id, { executionId, workflowId });
 
     logger.info(
-      { executionId, stepOrder: step.stepOrder, podName, agentName: stepAgent.name },
+      { executionId, stepOrder: step.stepOrder, podName, agentName: stepAgent.name, allocationTimeoutSeconds },
       'Ephemeral agent instance created for step execution',
     );
 
-    // Wait for the pod to complete
-    const podResult = await waitForPodCompletion(podName, step.timeoutSeconds ?? 600);
+    const allocationResult = await waitForStepAllocation(
+      stepExec.id,
+      allocationTimeoutSeconds * 1000,
+      `Timed out waiting ${allocationTimeoutSeconds}s for ephemeral worker pod readiness.`,
+    );
 
-    // Release agent slot
-    await releaseAgentSlot();
-    slotAcquired = false;
+    if (allocationResult.status === 'completed' || allocationResult.status === 'failed') {
+      return;
+    }
 
-    // Cleanup the pod & instance record
-    await deleteAgentPod(podName);
-    await terminateEphemeralInstance(podName);
+    // Wait for the dedicated pod to finish once the step has been allocated.
+    const podResult = await waitForPodCompletion(podName, executionBudgetSeconds);
+
+    if (podResult === 'Succeeded') {
+      const pollTimeoutMs = 10_000;
+      const pollIntervalMs = 1_000;
+      const pollStart = Date.now();
+
+      while (Date.now() - pollStart < pollTimeoutMs) {
+        const updatedStepExec = await db.query.stepExecutions.findFirst({
+          where: eq(stepExecutions.id, stepExec.id),
+        });
+
+        if (updatedStepExec?.status === 'completed') return;
+        if (updatedStepExec?.status === 'failed') {
+          throw new Error(updatedStepExec.error || 'Ephemeral agent instance failed');
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      }
+
+      throw new Error('Ephemeral agent instance completed but step status was not persisted');
+    }
 
     if (podResult === 'Failed') {
       const updatedStepExec = await db.query.stepExecutions.findFirst({
@@ -505,13 +710,11 @@ async function executeStepEphemeral(
 
       throw new Error(errorMsg);
     }
-  } catch (error) {
-    if (slotAcquired) await releaseAgentSlot();
+  } finally {
     if (podName) {
       await deleteAgentPod(podName).catch(() => {});
       await terminateEphemeralInstance(podName).catch(() => {});
     }
-    throw error;
   }
 }
 
@@ -566,11 +769,13 @@ export interface LiveOutputEvent {
 export async function executeCopilotSession(params: {
   agent: typeof agents.$inferSelect;
   step: typeof workflowSteps.$inferSelect;
+  stepExecutionId?: string;
   resolvedPrompt: string;
   precedentOutput: string;
   credentials: Map<string, string>;
   properties: Map<string, string>;
   envVariables: Map<string, string>;
+  workerRuntime: 'static' | 'ephemeral';
   inputs?: Record<string, unknown>;
   workflowId: string;
   workspaceId: string;
@@ -580,7 +785,7 @@ export async function executeCopilotSession(params: {
   workflowDefaultReasoningEffort?: string | null;
   onProgress?: (events: LiveOutputEvent[]) => void | Promise<void>;
 }): Promise<{ output: string; resolvedPrompt: string; reasoningTrace: Record<string, unknown> }> {
-  const { agent, step, resolvedPrompt: rawPrompt, precedentOutput, credentials, properties, envVariables, inputs, workflowId, workspaceId, executionId, userId, workflowDefaultModel, workflowDefaultReasoningEffort, onProgress } = params;
+  const { agent, step, stepExecutionId, resolvedPrompt: rawPrompt, precedentOutput, credentials, properties, envVariables, workerRuntime, inputs, workflowId, workspaceId, executionId, userId, workflowDefaultModel, workflowDefaultReasoningEffort, onProgress } = params;
 
   // Render prompt template using Jinja2 (nunjucks) with full variable context
   const templateContext = buildTemplateContext({
@@ -603,10 +808,22 @@ export async function executeCopilotSession(params: {
   );
 
   // 0. Acquire distributed session lock (prevent concurrent sessions per agent)
-  const lockValue = await acquireSessionLock(agent.id);
+  const { lockValue, blockingSession } = await acquireSessionLockWithWait(agent.id, {
+    agentId: agent.id,
+    agentName: agent.name,
+    executionId,
+    stepExecutionId,
+    workflowId,
+    workerRuntime,
+    stepName: step.name,
+    acquiredAt: new Date().toISOString(),
+  });
   if (!lockValue) {
+    const blocker = blockingSession
+      ? ` Current owner: execution ${blockingSession.executionId}, step execution ${blockingSession.stepExecutionId || 'unknown'}, step "${blockingSession.stepName}", acquired at ${blockingSession.acquiredAt}.`
+      : '';
     throw new Error(
-      `Agent ${agent.name} (${agent.id}) already has an active Copilot session. Concurrent execution blocked.`,
+      `Agent ${agent.name} (${agent.id}) is still busy after waiting ${SESSION_LOCK_WAIT_SECONDS}s for its active Copilot session to finish.${blocker}`,
     );
   }
 
@@ -617,61 +834,62 @@ export async function executeCopilotSession(params: {
     });
   }, 5 * 60 * 1000);
 
-  // 1. Prepare agent workspace based on source type
-  // Resolve GitHub token: prefer credential reference over inline encrypted token
-  let resolvedGithubTokenEncrypted = agent.githubTokenEncrypted;
-  if (agent.githubTokenCredentialId && !resolvedGithubTokenEncrypted) {
-    const credId = agent.githubTokenCredentialId;
-    // Look up in user variables first (scoped to workflow owner), then workspace variables (scoped to workspace)
-    const userCred = await db.query.userVariables.findFirst({
-      where: and(eq(userVariables.id, credId), eq(userVariables.userId, userId)),
-    });
-    if (userCred) {
-      resolvedGithubTokenEncrypted = userCred.valueEncrypted;
-    } else if (workspaceId) {
-      const wsCred = await db.query.workspaceVariables.findFirst({
-        where: and(eq(workspaceVariables.id, credId), eq(workspaceVariables.workspaceId, workspaceId)),
-      });
-      if (wsCred) resolvedGithubTokenEncrypted = wsCred.valueEncrypted;
-    }
-  }
-
-  // Resolve Copilot CLI token: per-agent override for GITHUB_TOKEN used by CopilotClient
-  let copilotTokenOverride: string | null = null;
-  if (agent.copilotTokenCredentialId) {
-    const copilotCredId = agent.copilotTokenCredentialId;
-    const userCopilotCred = await db.query.userVariables.findFirst({
-      where: and(eq(userVariables.id, copilotCredId), eq(userVariables.userId, userId)),
-    });
-    if (userCopilotCred) {
-      copilotTokenOverride = decrypt(userCopilotCred.valueEncrypted);
-    } else if (workspaceId) {
-      const wsCopilotCred = await db.query.workspaceVariables.findFirst({
-        where: and(eq(workspaceVariables.id, copilotCredId), eq(workspaceVariables.workspaceId, workspaceId)),
-      });
-      if (wsCopilotCred) copilotTokenOverride = decrypt(wsCopilotCred.valueEncrypted);
-    }
-    if (copilotTokenOverride) {
-      logger.info({ agentId: agent.id }, 'Using per-agent Copilot token override');
-    }
-  }
-
-  const workspace = agent.sourceType === 'database'
-    ? await prepareDbAgentWorkspace(agent.id)
-    : await prepareAgentWorkspace({
-      gitRepoUrl: agent.gitRepoUrl!,
-      gitBranch: agent.gitBranch,
-      agentFilePath: agent.agentFilePath!,
-      skillsPaths: agent.skillsPaths ?? [],
-      skillsDirectory: agent.skillsDirectory,
-      githubTokenEncrypted: resolvedGithubTokenEncrypted,
-    });
-
+  let workspace: Awaited<ReturnType<typeof prepareAgentWorkspace>> | Awaited<ReturnType<typeof prepareDbAgentWorkspace>> | null = null;
   const toolCalls: Array<{ tool: string; args: unknown }> = [];
   const mcpCleanups: Array<() => Promise<void>> = [];
   const originalGithubToken = process.env.GITHUB_TOKEN;
+  let copilotTokenOverride: string | null = null;
 
   try {
+    // 1. Prepare agent workspace based on source type
+    // Resolve GitHub token: prefer credential reference over inline encrypted token
+    let resolvedGithubTokenEncrypted = agent.githubTokenEncrypted;
+    if (agent.githubTokenCredentialId && !resolvedGithubTokenEncrypted) {
+      const credId = agent.githubTokenCredentialId;
+      // Look up in user variables first (scoped to workflow owner), then workspace variables (scoped to workspace)
+      const userCred = await db.query.userVariables.findFirst({
+        where: and(eq(userVariables.id, credId), eq(userVariables.userId, userId)),
+      });
+      if (userCred) {
+        resolvedGithubTokenEncrypted = userCred.valueEncrypted;
+      } else if (workspaceId) {
+        const wsCred = await db.query.workspaceVariables.findFirst({
+          where: and(eq(workspaceVariables.id, credId), eq(workspaceVariables.workspaceId, workspaceId)),
+        });
+        if (wsCred) resolvedGithubTokenEncrypted = wsCred.valueEncrypted;
+      }
+    }
+
+    // Resolve Copilot CLI token: per-agent override for GITHUB_TOKEN used by CopilotClient
+    if (agent.copilotTokenCredentialId) {
+      const copilotCredId = agent.copilotTokenCredentialId;
+      const userCopilotCred = await db.query.userVariables.findFirst({
+        where: and(eq(userVariables.id, copilotCredId), eq(userVariables.userId, userId)),
+      });
+      if (userCopilotCred) {
+        copilotTokenOverride = decrypt(userCopilotCred.valueEncrypted);
+      } else if (workspaceId) {
+        const wsCopilotCred = await db.query.workspaceVariables.findFirst({
+          where: and(eq(workspaceVariables.id, copilotCredId), eq(workspaceVariables.workspaceId, workspaceId)),
+        });
+        if (wsCopilotCred) copilotTokenOverride = decrypt(wsCopilotCred.valueEncrypted);
+      }
+      if (copilotTokenOverride) {
+        logger.info({ agentId: agent.id }, 'Using per-agent Copilot token override');
+      }
+    }
+
+    workspace = agent.sourceType === 'database'
+      ? await prepareDbAgentWorkspace(agent.id)
+      : await prepareAgentWorkspace({
+        gitRepoUrl: agent.gitRepoUrl!,
+        gitBranch: agent.gitBranch,
+        agentFilePath: agent.agentFilePath!,
+        skillsPaths: agent.skillsPaths ?? [],
+        skillsDirectory: agent.skillsDirectory,
+        githubTokenEncrypted: resolvedGithubTokenEncrypted,
+      });
+
     // 1.5 Write .env file with variables marked for env injection
     if (envVariables.size > 0 && workspace.workdir) {
       const { writeFile } = await import('node:fs/promises');
@@ -916,6 +1134,7 @@ export async function executeCopilotSession(params: {
       reasoningTrace: {
         model,
         reasoningEffort: step.reasoningEffort ?? null,
+        workerRuntime,
         agentFile: agent.agentFilePath,
         skills: agent.skillsPaths,
         promptTokens: resolvedPrompt.length,
@@ -936,7 +1155,9 @@ export async function executeCopilotSession(params: {
     for (const cleanup of mcpCleanups) {
       try { await cleanup(); } catch { /* ignore */ }
     }
-    await workspace.cleanup();
+    if (workspace) {
+      await workspace.cleanup();
+    }
     await releaseSessionLock(agent.id, lockValue);
   }
 }

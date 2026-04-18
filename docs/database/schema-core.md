@@ -112,6 +112,8 @@ Multi-step execution templates.
 | defaultAgentId | UUID FK → agents | Optional |
 | defaultModel | varchar(100) | Optional |
 | defaultReasoningEffort | reasoning_effort | Optional |
+| workerRuntime | worker_runtime | `static` or `ephemeral`. Default: `static` |
+| stepAllocationTimeoutSeconds | integer | Default: 300. Max wait for a step to leave `pending` while allocating a runtime |
 | scope | resource_scope | Default: `user`. Immutable |
 | createdAt, updatedAt | timestamp | |
 
@@ -129,6 +131,7 @@ Ordered steps in a workflow.
 | agentId | UUID FK → agents | Optional |
 | model | varchar(100) | Optional override |
 | reasoningEffort | reasoning_effort | Optional |
+| workerRuntime | worker_runtime | Optional override. Falls back to `workflows.workerRuntime` |
 | timeoutSeconds | integer | Default: 300 |
 | createdAt, updatedAt | timestamp | |
 | | | UNIQUE(workflowId, stepOrder) |
@@ -136,6 +139,8 @@ Ordered steps in a workflow.
 ### triggers
 
 Trigger configurations for workflows.
+
+> Triggers are immutable after creation. To change configuration, delete the trigger and create a new one.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -164,7 +169,7 @@ Trigger configurations for workflows.
 | triggerId | UUID FK → triggers | |
 | triggerMetadata | jsonb | Webhook payload, cron tick, retry info |
 | workflowVersion | integer | Snapshot version at trigger time |
-| workflowSnapshot | jsonb | Full workflow + steps snapshot (immutable) |
+| workflowSnapshot | jsonb | Full workflow + steps snapshot (immutable, including worker runtime overrides and allocation timeout) |
 | status | execution_status | |
 | currentStep | integer | 1-indexed |
 | totalSteps | integer | |
