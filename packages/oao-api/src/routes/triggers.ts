@@ -109,7 +109,13 @@ triggersRouter.post('/', async (c) => {
   return c.json({ trigger }, 201);
 });
 
-// PUT /:id — triggers are immutable after creation
+// PUT /:id — update trigger configuration, type, or enabled state
+const updateTriggerSchema = z.object({
+  triggerType: z.enum(['time_schedule', 'exact_datetime', 'webhook', 'event']).optional(),
+  configuration: z.record(z.unknown()).optional(),
+  isActive: z.boolean().optional(),
+});
+
 triggersRouter.put('/:id', async (c) => {
   const user = c.get('user');
   const id = uuidSchema.parse(c.req.param('id'));
@@ -117,7 +123,40 @@ triggersRouter.put('/:id', async (c) => {
   const access = await verifyTriggerAccess(id, user.workspaceId, user.userId, user.role);
   if (!access) return c.json({ error: 'Trigger not found' }, 404);
 
-  return c.json({ error: 'Triggers are immutable after creation. Delete and recreate the trigger to change it.' }, 405);
+  if (access.workflow.scope === 'workspace' && user.role !== 'workspace_admin' && user.role !== 'super_admin') {
+    return c.json({ error: 'Only admins can modify workspace-level workflow triggers' }, 403);
+  }
+
+  const body = updateTriggerSchema.parse(await c.req.json());
+
+  const nextType = body.triggerType ?? access.trigger.triggerType;
+  const nextConfig = body.configuration ?? (access.trigger.configuration as Record<string, unknown>);
+
+  // Validate webhook path uniqueness if path changed
+  if (nextType === 'webhook' && nextConfig && typeof nextConfig.path === 'string' && nextConfig.path) {
+    const currentConfig = access.trigger.configuration as Record<string, unknown> | null;
+    const pathChanged = !currentConfig || currentConfig.path !== nextConfig.path;
+    if (pathChanged) {
+      const conflicting = await db.query.triggers.findFirst({
+        where: and(
+          eq(triggers.triggerType, 'webhook'),
+          sql`configuration->>'path' = ${String(nextConfig.path)}`,
+          sql`${triggers.id} <> ${id}`,
+        ),
+      });
+      if (conflicting) {
+        return c.json({ error: `Webhook path "${nextConfig.path}" is already in use` }, 409);
+      }
+    }
+  }
+
+  const updates: Partial<typeof triggers.$inferInsert> = {};
+  if (body.triggerType !== undefined) updates.triggerType = body.triggerType;
+  if (body.configuration !== undefined) updates.configuration = body.configuration;
+  if (body.isActive !== undefined) updates.isActive = body.isActive;
+
+  const [trigger] = await db.update(triggers).set(updates).where(eq(triggers.id, id)).returning();
+  return c.json({ trigger });
 });
 
 // DELETE /:id (workspace-scoped)

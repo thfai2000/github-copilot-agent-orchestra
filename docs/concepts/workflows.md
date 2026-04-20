@@ -163,7 +163,7 @@ Triggers define **when** a workflow executes. Workflows can also be run manually
 | **Webhook** | External HTTP call with parameter validation | URL path + HMAC-SHA256 secret + parameter definitions |
 | **Event** | React to system events | Event name + optional conditions |
 
-Triggers are **immutable after creation**. To change a trigger's schedule, webhook path, or conditions, delete it and create a replacement trigger.
+Triggers can be **edited in place**. Use `PUT /api/triggers/:id` (or the **Edit** button in the workflow UI) to update the trigger type, configuration, or enabled state. Webhook paths must still be unique across all webhook triggers.
 
 ### Manual Run
 

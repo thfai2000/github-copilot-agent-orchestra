@@ -140,7 +140,7 @@ Ordered steps in a workflow.
 
 Trigger configurations for workflows.
 
-> Triggers are immutable after creation. To change configuration, delete the trigger and create a new one.
+> Triggers can be edited or deleted at any time via `PUT /api/triggers/:id` and `DELETE /api/triggers/:id`. Webhook paths must remain unique across all webhook triggers.
 
 | Column | Type | Notes |
 |---|---|---|

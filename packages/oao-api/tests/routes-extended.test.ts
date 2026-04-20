@@ -976,7 +976,7 @@ describe('Agent files routes', () => {
 // ======================================================================
 
 describe('Trigger routes — updates and deletes', () => {
-  it('PUT /api/triggers/:id rejects updates because triggers are immutable', async () => {
+  it('PUT /api/triggers/:id updates configuration', async () => {
     const token = await getToken();
     // verifyTriggerAccess: 1st findFirst = trigger, 2nd findFirst = workflow
     mockFindFirst
@@ -998,16 +998,18 @@ describe('Trigger routes — updates and deletes', () => {
       headers: authHeaders(token),
       body: JSON.stringify({ configuration: { cron: '*/10 * * * *' } }),
     });
-    expect(res.status).toBe(405);
+    expect(res.status).toBe(200);
   });
 
-  it('PUT /api/triggers/:id also rejects activation changes', async () => {
+  it('PUT /api/triggers/:id updates activation state', async () => {
     const token = await getToken();
     // verifyTriggerAccess: 1st = trigger, 2nd = workflow
     mockFindFirst
       .mockResolvedValueOnce({
         id: TEST_TRIGGER_ID,
         workflowId: TEST_WORKFLOW_ID,
+        triggerType: 'time_schedule',
+        configuration: { cron: '*/5 * * * *' },
         isActive: true,
       })
       .mockResolvedValueOnce({
@@ -1022,7 +1024,7 @@ describe('Trigger routes — updates and deletes', () => {
       headers: authHeaders(token),
       body: JSON.stringify({ isActive: false }),
     });
-    expect(res.status).toBe(405);
+    expect(res.status).toBe(200);
   });
 
   it('PUT /api/triggers/:id returns 404 for non-existent', async () => {

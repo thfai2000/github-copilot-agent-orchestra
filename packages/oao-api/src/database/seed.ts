@@ -82,7 +82,7 @@ async function seed() {
       await db.insert(authProviders).values({
         workspaceId: resolvedWsId,
         providerType: 'database',
-        name: 'Database',
+        name: 'Email & Password',
         isEnabled: true,
         priority: 0,
         config: {},

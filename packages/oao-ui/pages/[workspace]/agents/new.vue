@@ -163,7 +163,7 @@
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
               <label v-for="tool in BUILTIN_TOOLS" :key="tool.name" class="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-muted/50 cursor-pointer">
-                <Checkbox :checked="form.builtinToolsEnabled.includes(tool.name)" @update:checked="toggleBuiltinTool(tool.name, $event)" />
+                <Checkbox :model-value="form.builtinToolsEnabled.includes(tool.name)" @update:model-value="toggleBuiltinTool(tool.name, $event)" />
                 <div>
                   <p class="text-sm font-medium">{{ tool.label }}</p>
                   <p class="text-xs text-muted-foreground">{{ tool.description }}</p>

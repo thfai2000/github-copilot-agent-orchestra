@@ -24,7 +24,7 @@
               ? 'border-primary bg-primary/10 text-primary'
               : 'border-border text-muted-foreground hover:border-foreground/30'"
           >
-            {{ p.name }}
+            {{ displayProviderName(p) }}
           </button>
         </div>
       </div>
@@ -77,6 +77,16 @@ const error = ref('');
 const loading = ref(false);
 const selectedProvider = ref('database');
 const providers = ref<Array<{ type: string; name: string }>>([]);
+
+// Friendly display name — hide generic seed names
+function displayProviderName(p: { type: string; name: string }): string {
+  const raw = (p.name || '').trim();
+  const generic = new Set(['database', 'ldap']);
+  if (!raw || generic.has(raw.toLowerCase())) {
+    return p.type === 'ldap' ? 'Active Directory' : 'Email & Password';
+  }
+  return raw;
+}
 
 // Fetch available auth providers for this workspace
 onMounted(async () => {

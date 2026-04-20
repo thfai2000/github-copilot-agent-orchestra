@@ -12,24 +12,35 @@
 
     <div v-if="workflow" class="space-y-6 mt-4">
       <!-- Header -->
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-3xl font-bold">{{ workflow.name }}</h1>
-          <div class="flex items-center gap-3 mt-1.5">
-            <Badge variant="outline" class="font-mono">v{{ workflow.version }}</Badge>
-            <Badge :variant="workflow.isActive ? 'default' : 'secondary'">{{ workflow.isActive ? 'Active' : 'Inactive' }}</Badge>
-            <Badge v-if="workflow.scope === 'workspace'" variant="outline">Workspace</Badge>
-            <Badge v-else variant="outline" class="text-muted-foreground">Personal</Badge>
-            <Badge v-for="label in (workflow.labels || [])" :key="label" variant="secondary" class="text-xs">{{ label }}</Badge>
-            <span class="text-sm text-muted-foreground">Owner: {{ workflow.ownerName || 'Unknown' }}</span>
-            <span v-if="workflow.lastExecutionAt" class="text-sm text-muted-foreground">
-              Last Run: {{ new Date(workflow.lastExecutionAt).toLocaleString() }}
-              <Badge :variant="workflow.lastExecutionStatus === 'completed' ? 'default' : workflow.lastExecutionStatus === 'failed' ? 'destructive' : 'secondary'" class="ml-1">{{ workflow.lastExecutionStatus }}</Badge>
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-3xl font-bold">{{ workflow.name }}</h1>
+            <Badge :variant="workflow.isActive ? 'default' : 'secondary'">
+              {{ workflow.isActive ? 'Active' : 'Inactive' }}
+            </Badge>
+          </div>
+          <p v-if="workflow.description" class="text-muted-foreground text-sm mt-1">{{ workflow.description }}</p>
+          <!-- Compact metadata row (no per-info badges) -->
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
+            <span>v{{ workflow.version }}</span>
+            <span aria-hidden="true">·</span>
+            <span>{{ workflow.scope === 'workspace' ? 'Workspace' : 'Personal' }}</span>
+            <span aria-hidden="true">·</span>
+            <span>Owner: {{ workflow.ownerName || 'Unknown' }}</span>
+            <span aria-hidden="true">·</span>
+            <span v-if="workflow.lastExecutionAt">
+              Last run {{ new Date(workflow.lastExecutionAt).toLocaleString() }}
+              <span v-if="workflow.lastExecutionStatus" class="ml-1 text-foreground">({{ workflow.lastExecutionStatus }})</span>
             </span>
-            <span v-else class="text-sm text-muted-foreground italic">Never run</span>
+            <span v-else class="italic">Never run</span>
+          </div>
+          <!-- Labels as real tags (only when present) -->
+          <div v-if="(workflow.labels || []).length > 0" class="flex flex-wrap gap-1 mt-2">
+            <Badge v-for="label in workflow.labels" :key="label" variant="secondary" class="text-xs">{{ label }}</Badge>
           </div>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 shrink-0">
           <Button v-if="!editingWorkflow" variant="outline" size="sm" @click="startEditWorkflow">Edit Workflow</Button>
           <Button size="sm" class="bg-green-600 hover:bg-green-700" :disabled="triggering || hasActiveExecution || !hasWebhookTrigger" @click="showRunDialog = true">
             <template v-if="hasActiveExecution">Execution In Progress…</template>
@@ -198,7 +209,7 @@
                   <Button v-if="editStepForm.length > 1" variant="ghost" size="sm" class="text-destructive h-7 text-xs" @click="editStepForm.splice(idx, 1)">Remove</Button>
                 </div>
                 <Input v-model="step.name" required placeholder="Step name" />
-                <Textarea v-model="step.promptTemplate" rows="3" required class="font-mono text-xs" placeholder="Jinja2 prompt template: {{ precedent_output }}, {{ properties.KEY }}, {{ credentials.KEY }}" />
+                <Textarea v-model="step.promptTemplate" rows="6" required class="font-mono text-xs" placeholder="Jinja2 prompt template: {{ precedent_output }}, {{ properties.KEY }}, {{ credentials.KEY }}" />
                 <details class="rounded-md border border-dashed border-border bg-background/60 px-3 py-2">
                   <summary class="cursor-pointer text-xs font-medium text-foreground">Advanced Settings</summary>
                   <p class="mt-1 text-xs text-muted-foreground">Control the agent, model, reasoning, worker runtime, and timeout for this step.</p>
@@ -255,7 +266,7 @@
           <div class="flex items-center justify-between">
             <div>
               <CardTitle>Triggers</CardTitle>
-              <CardDescription>Add a webhook trigger to enable <strong>Manual Run</strong>. Webhook parameters define the input fields shown during Manual Run. Triggers are immutable after creation, so delete and recreate them to change configuration.</CardDescription>
+              <CardDescription>Add a webhook trigger to enable <strong>Manual Run</strong>. Webhook parameters define the input fields shown during Manual Run. Triggers can be edited after creation; saving updates the schedule, path, parameters, or event conditions in place.</CardDescription>
             </div>
             <Button variant="outline" size="sm" @click="showTriggerForm = true">+ Add Trigger</Button>
           </div>
@@ -334,15 +345,91 @@
           </Card>
 
           <div class="space-y-2">
-            <div v-for="trigger in triggers" :key="trigger.id"
-              class="p-3 rounded-lg border border-border flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <Badge variant="secondary" class="uppercase text-xs">{{ formatTriggerType(trigger.triggerType || trigger.type) }}</Badge>
-                <span class="text-sm font-mono">{{ formatTriggerConfig(trigger) }}</span>
+            <div v-for="trigger in triggers" :key="trigger.id" class="rounded-lg border border-border overflow-hidden">
+              <!-- Display row -->
+              <div v-if="editingTriggerId !== trigger.id" class="p-3 flex items-center justify-between">
+                <div class="flex items-center gap-3 min-w-0">
+                  <Badge variant="secondary" class="uppercase text-xs">{{ formatTriggerType(trigger.triggerType || trigger.type) }}</Badge>
+                  <span class="text-sm font-mono truncate">{{ formatTriggerConfig(trigger) }}</span>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-xs text-muted-foreground">{{ trigger.isActive ? 'Enabled' : 'Disabled' }}</span>
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="startEditTrigger(trigger)">Edit</Button>
+                  <Button variant="ghost" size="sm" class="text-destructive text-xs h-7" @click="handleDeleteTrigger(trigger.id)">Delete</Button>
+                </div>
               </div>
-              <div class="flex items-center gap-3">
-                <Badge :variant="trigger.isActive ? 'default' : 'secondary'">{{ trigger.isActive ? 'Enabled' : 'Disabled' }}</Badge>
-                <Button variant="ghost" size="sm" class="text-destructive text-xs h-7" @click="handleDeleteTrigger(trigger.id)">Delete</Button>
+              <!-- Inline edit form -->
+              <div v-else class="p-4 bg-muted/20">
+                <div v-if="editTriggerError" class="mb-3 p-2 rounded-md bg-destructive/10 text-destructive text-sm">{{ editTriggerError }}</div>
+                <form @submit.prevent="handleSaveEditTrigger(trigger.id)" class="space-y-3">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                      <Label class="text-xs">Trigger Type *</Label>
+                      <select v-model="editTriggerForm.triggerType" required class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                        <option value="time_schedule">Repeatable Schedule (Cron)</option>
+                        <option value="exact_datetime">Exact Datetime</option>
+                        <option value="webhook">Webhook</option>
+                        <option value="event">Event</option>
+                      </select>
+                    </div>
+                    <div v-if="editTriggerForm.triggerType === 'time_schedule'" class="space-y-1">
+                      <Label class="text-xs">Cron Expression *</Label>
+                      <Input v-model="editTriggerForm.cron" class="font-mono" placeholder="0 9 * * 1-5" />
+                    </div>
+                    <div v-if="editTriggerForm.triggerType === 'exact_datetime'" class="space-y-1">
+                      <Label class="text-xs">Datetime *</Label>
+                      <Input v-model="editTriggerForm.datetime" type="datetime-local" />
+                    </div>
+                    <div v-if="editTriggerForm.triggerType === 'webhook'" class="space-y-1">
+                      <Label class="text-xs">Webhook Path *</Label>
+                      <Input v-model="editTriggerForm.webhookPath" class="font-mono" placeholder="/my-webhook" />
+                    </div>
+                    <div v-if="editTriggerForm.triggerType === 'event'" class="space-y-1">
+                      <Label class="text-xs">Event Name *</Label>
+                      <select v-model="editTriggerForm.eventType" class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                        <option value="">Select event...</option>
+                        <option v-for="name in eventNames" :key="name" :value="name">{{ name }}</option>
+                      </select>
+                    </div>
+                    <div class="space-y-1">
+                      <Label class="text-xs">Enabled</Label>
+                      <label class="flex items-center gap-2 text-sm h-10">
+                        <input type="checkbox" v-model="editTriggerForm.isActive" />
+                        <span>{{ editTriggerForm.isActive ? 'Enabled' : 'Disabled' }}</span>
+                      </label>
+                    </div>
+                  </div>
+                  <!-- Webhook Parameters -->
+                  <div v-if="editTriggerForm.triggerType === 'webhook'" class="space-y-2">
+                    <div class="flex items-center justify-between">
+                      <Label class="text-xs">Webhook Parameters</Label>
+                      <Button variant="ghost" size="sm" class="h-6 text-xs" type="button" @click="editTriggerForm.webhookParams.push({ name: '', required: false, description: '' })">+ Add Parameter</Button>
+                    </div>
+                    <div v-for="(param, pi) in editTriggerForm.webhookParams" :key="pi" class="flex gap-2 items-center">
+                      <Input v-model="param.name" placeholder="Name" class="flex-1 text-xs" />
+                      <Input v-model="param.description" placeholder="Description (optional)" class="flex-1 text-xs" />
+                      <label class="flex items-center gap-1 text-xs whitespace-nowrap"><input type="checkbox" v-model="param.required" /> Required</label>
+                      <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-destructive" type="button" @click="editTriggerForm.webhookParams.splice(pi, 1)">×</Button>
+                    </div>
+                  </div>
+                  <!-- Event Conditions -->
+                  <div v-if="editTriggerForm.triggerType === 'event'" class="space-y-2">
+                    <div class="flex items-center justify-between">
+                      <Label class="text-xs">Event Data Conditions</Label>
+                      <Button variant="ghost" size="sm" class="h-6 text-xs" type="button" @click="editTriggerForm.conditions.push({ key: '', value: '' })">+ Add Condition</Button>
+                    </div>
+                    <div v-for="(cond, ci) in editTriggerForm.conditions" :key="ci" class="flex gap-2 items-center">
+                      <Input v-model="cond.key" placeholder="Key" class="flex-1 text-xs" />
+                      <span class="text-xs text-muted-foreground">=</span>
+                      <Input v-model="cond.value" placeholder="Value" class="flex-1 text-xs" />
+                      <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-destructive" type="button" @click="editTriggerForm.conditions.splice(ci, 1)">×</Button>
+                    </div>
+                  </div>
+                  <div class="flex gap-2">
+                    <Button type="submit" size="sm" :disabled="savingEditTrigger">{{ savingEditTrigger ? 'Saving…' : 'Save Changes' }}</Button>
+                    <Button variant="outline" size="sm" type="button" @click="editingTriggerId = null">Cancel</Button>
+                  </div>
+                </form>
               </div>
             </div>
             <p v-if="triggers.length === 0 && !showTriggerForm" class="text-muted-foreground text-sm">No automated triggers configured.</p>
@@ -688,6 +775,110 @@ async function handleDeleteTrigger(id: string) {
     await refreshTriggers();
   } catch {
     alert('Failed to delete trigger');
+  }
+}
+
+// ── Edit existing trigger ────────────────────────────────────────
+interface EditTriggerForm {
+  triggerType: string;
+  cron: string;
+  webhookPath: string;
+  webhookParams: Array<{ name: string; required: boolean; description: string }>;
+  eventType: string;
+  datetime: string;
+  conditions: Array<{ key: string; value: string }>;
+  isActive: boolean;
+}
+
+const editingTriggerId = ref<string | null>(null);
+const savingEditTrigger = ref(false);
+const editTriggerError = ref('');
+const editTriggerForm = reactive<EditTriggerForm>({
+  triggerType: 'time_schedule',
+  cron: '',
+  webhookPath: '',
+  webhookParams: [],
+  eventType: '',
+  datetime: '',
+  conditions: [],
+  isActive: true,
+});
+
+function toLocalDatetimeInput(iso: string | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function startEditTrigger(trigger: any) {
+  const cfg = (trigger.configuration || trigger.config || {}) as Record<string, any>;
+  const paramList = Array.isArray(cfg.parameters) ? cfg.parameters : [];
+  const condsObj: Record<string, string> = (cfg.conditions && typeof cfg.conditions === 'object') ? cfg.conditions : {};
+  Object.assign(editTriggerForm, {
+    triggerType: trigger.triggerType || trigger.type || 'time_schedule',
+    cron: cfg.cron || '',
+    webhookPath: cfg.path || '',
+    webhookParams: paramList.map((p: any) => ({
+      name: p.name || '',
+      required: Boolean(p.required),
+      description: p.description || '',
+    })),
+    eventType: cfg.eventName || cfg.eventType || '',
+    datetime: toLocalDatetimeInput(cfg.datetime),
+    conditions: Object.entries(condsObj).map(([key, value]) => ({ key, value: String(value) })),
+    isActive: Boolean(trigger.isActive),
+  });
+  editTriggerError.value = '';
+  editingTriggerId.value = trigger.id;
+}
+
+async function handleSaveEditTrigger(id: string) {
+  editTriggerError.value = '';
+  savingEditTrigger.value = true;
+  try {
+    const configuration: Record<string, unknown> = {};
+    if (editTriggerForm.triggerType === 'time_schedule') configuration.cron = editTriggerForm.cron;
+    if (editTriggerForm.triggerType === 'exact_datetime') {
+      if (!editTriggerForm.datetime) throw new Error('Datetime is required');
+      configuration.datetime = new Date(editTriggerForm.datetime).toISOString();
+    }
+    if (editTriggerForm.triggerType === 'webhook') {
+      configuration.path = editTriggerForm.webhookPath;
+      const params = editTriggerForm.webhookParams.filter((p) => p.name.trim());
+      if (params.length > 0) {
+        configuration.parameters = params.map((p) => ({
+          name: p.name.trim(),
+          required: p.required,
+          ...(p.description.trim() ? { description: p.description.trim() } : {}),
+        }));
+      }
+    }
+    if (editTriggerForm.triggerType === 'event') {
+      configuration.eventName = editTriggerForm.eventType;
+      if (editTriggerForm.conditions.length > 0) {
+        const conds: Record<string, string> = {};
+        for (const c of editTriggerForm.conditions) { if (c.key.trim()) conds[c.key.trim()] = c.value; }
+        if (Object.keys(conds).length > 0) configuration.conditions = conds;
+      }
+    }
+
+    await $fetch(`/api/triggers/${id}`, {
+      method: 'PUT',
+      headers,
+      body: {
+        triggerType: editTriggerForm.triggerType,
+        configuration,
+        isActive: editTriggerForm.isActive,
+      },
+    });
+    editingTriggerId.value = null;
+    await refreshTriggers();
+  } catch (e: any) {
+    editTriggerError.value = e?.data?.error || e?.message || 'Failed to save trigger';
+  } finally {
+    savingEditTrigger.value = false;
   }
 }
 </script>

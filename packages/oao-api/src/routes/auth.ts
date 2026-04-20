@@ -232,10 +232,18 @@ auth.get('/providers', async (c) => {
     where: eq(workspaces.slug, slug),
   });
 
-  // Always include database provider
-  const providers: Array<{ type: string; name: string }> = [
-    { type: 'database', name: 'Email & Password' },
-  ];
+  // Build provider list, deduplicated by providerType. One provider per type (UI selects by type).
+  const seen = new Set<string>();
+  const providers: Array<{ type: string; name: string }> = [];
+
+  const displayName = (type: string, rawName?: string): string => {
+    const fallback = type === 'ldap' ? 'Active Directory' : 'Email & Password';
+    if (!rawName || !rawName.trim()) return fallback;
+    // Ignore generic seed names so users don't see "Database"
+    const generic = new Set(['database', 'ldap']);
+    if (generic.has(rawName.trim().toLowerCase())) return fallback;
+    return rawName;
+  };
 
   if (workspace) {
     const configured = await db.query.authProviders.findMany({
@@ -243,11 +251,19 @@ auth.get('/providers', async (c) => {
         eq(authProviders.workspaceId, workspace.id),
         eq(authProviders.isEnabled, true),
       ),
+      orderBy: [desc(authProviders.priority)],
     });
 
     for (const p of configured) {
-      providers.push({ type: p.providerType, name: p.name });
+      if (seen.has(p.providerType)) continue;
+      seen.add(p.providerType);
+      providers.push({ type: p.providerType, name: displayName(p.providerType, p.name) });
     }
+  }
+
+  // Ensure database fallback is always available (for login with local users)
+  if (!seen.has('database')) {
+    providers.unshift({ type: 'database', name: 'Email & Password' });
   }
 
   return c.json({ providers });

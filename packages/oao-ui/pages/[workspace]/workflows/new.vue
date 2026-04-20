@@ -131,7 +131,7 @@
               </div>
               <div class="space-y-1.5">
                 <Label class="text-xs">Prompt Template *</Label>
-                <Textarea v-model="step.promptTemplate" rows="3" required class="font-mono text-xs"
+                <Textarea v-model="step.promptTemplate" rows="6" required class="font-mono text-xs"
                   placeholder="Jinja2 prompt template: {{ precedent_output }}, {{ properties.KEY }}, {{ credentials.KEY }}" />
               </div>
               <details class="rounded-md border border-dashed border-border bg-background/60 px-3 py-2">
@@ -186,7 +186,7 @@
           <div class="flex items-center justify-between">
             <div>
               <CardTitle>Triggers</CardTitle>
-              <CardDescription>A default webhook trigger is pre-filled. The <strong>Manual Run</strong> button on the detail page uses the webhook trigger to collect inputs. Use <code v-pre class="bg-muted px-1 rounded text-xs">{{ inputs.PARAM_NAME }}</code> in prompt templates. After creation, triggers are immutable: delete and recreate them to change configuration.</CardDescription>
+              <CardDescription>A default webhook trigger is pre-filled. The <strong>Manual Run</strong> button on the detail page uses the webhook trigger to collect inputs. Use <code v-pre class="bg-muted px-1 rounded text-xs">{{ inputs.PARAM_NAME }}</code> in prompt templates. Triggers can be edited or removed after creation.</CardDescription>
             </div>
             <Button variant="outline" size="sm" type="button" @click="addTrigger">+ Add Trigger</Button>
           </div>
@@ -297,8 +297,18 @@ const form = reactive({
   stepAllocationTimeoutSeconds: 300,
   scope: 'user' as 'user' | 'workspace',
   steps: [{ name: '', promptTemplate: '', agentId: '', model: '', reasoningEffort: '', workerRuntime: '', timeoutSeconds: 300 }] as StepForm[],
-  triggers: [{ triggerType: 'webhook', cron: '', webhookPath: `/${crypto.randomUUID().slice(0, 12)}`, webhookParams: [] as WebhookParam[], eventType: '', datetime: '', conditions: [] }] as TriggerForm[],
+  triggers: [{ triggerType: 'webhook', cron: '', webhookPath: `/${randomWebhookPath()}`, webhookParams: [] as WebhookParam[], eventType: '', datetime: '', conditions: [] }] as TriggerForm[],
 });
+
+// Browser `crypto.randomUUID` is only available in secure contexts (HTTPS or localhost).
+// Fall back to Math.random so http:// deployments (e.g. http://oao.local) still work.
+function randomWebhookPath(): string {
+  const c = (globalThis as any).crypto;
+  if (c && typeof c.randomUUID === 'function') {
+    try { return c.randomUUID().slice(0, 12); } catch { /* fall through */ }
+  }
+  return Math.random().toString(36).slice(2, 14);
+}
 
 const { data: agentsData } = await useFetch('/api/agents', { headers });
 const agents = computed(() => agentsData.value?.agents ?? []);

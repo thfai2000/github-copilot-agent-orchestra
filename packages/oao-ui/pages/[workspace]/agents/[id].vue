@@ -155,69 +155,7 @@
 
               <!-- Database Source Info -->
               <div v-if="editForm.sourceType === 'database'" class="p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
-                <p>&#x1f4a1; Manage the database-stored instruction and skill files in the Agent/Skill File Content section below.</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card v-if="editForm.sourceType === 'database'">
-            <CardHeader>
-              <div class="flex items-center justify-between">
-                <div>
-                  <CardTitle>Agent/Skill File Content</CardTitle>
-                  <CardDescription>Markdown files stored in the database. The first root-level markdown file is the main agent instruction.</CardDescription>
-                </div>
-                <Button size="sm" @click="showFileForm = true">+ Add File</Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div v-if="showFileForm" class="mb-4 p-4 rounded-lg border border-border bg-muted/30">
-                <div v-if="fileError" class="mb-3 p-2 rounded-md bg-destructive/10 text-destructive text-sm">{{ fileError }}</div>
-                <form @submit.prevent="handleCreateFile" class="space-y-3">
-                  <div class="space-y-1.5">
-                    <Label class="text-xs">File Path *</Label>
-                    <Input v-model="fileForm.filePath" required placeholder="agent.md or skills/research.md" class="font-mono" />
-                    <p class="text-xs text-muted-foreground">Use forward slashes for subdirectories.</p>
-                  </div>
-                  <div class="space-y-1.5">
-                    <Label class="text-xs">Content *</Label>
-                    <Textarea v-model="fileForm.content" required rows="8" class="font-mono text-xs" placeholder="# Agent Instructions&#10;&#10;Your markdown content..." />
-                  </div>
-                  <div class="flex gap-2">
-                    <Button type="submit" size="sm" :disabled="savingFile">{{ savingFile ? 'Creating...' : 'Create File' }}</Button>
-                    <Button variant="outline" size="sm" type="button" @click="showFileForm = false; fileError = ''">Cancel</Button>
-                  </div>
-                </form>
-              </div>
-
-              <div class="space-y-2">
-                <div v-for="f in agentFiles" :key="f.id" class="rounded-lg border border-border overflow-hidden">
-                  <div class="flex items-center justify-between p-3 bg-muted/30 cursor-pointer" @click="toggleFileExpand(f.id)">
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs">{{ expandedFileId === f.id ? '&#x25bc;' : '&#x25b6;' }}</span>
-                      <span class="font-mono text-sm font-medium">{{ f.filePath }}</span>
-                      <Badge v-if="isMainAgentFile(f.filePath)" variant="default" class="text-[10px]">Main</Badge>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs text-muted-foreground">{{ new Date(f.updatedAt).toLocaleDateString() }}</span>
-                      <Button variant="ghost" size="sm" class="h-7 text-xs" @click.stop="startEditFile(f)">Edit</Button>
-                      <Button variant="ghost" size="sm" class="text-destructive h-7 text-xs" @click.stop="handleDeleteFile(f.id, f.filePath)">Delete</Button>
-                    </div>
-                  </div>
-                  <div v-if="expandedFileId === f.id" class="border-t border-border">
-                    <div v-if="editingFileId === f.id" class="p-3">
-                      <Textarea v-model="editFileContent" rows="12" class="font-mono text-xs" />
-                      <div class="flex gap-2 mt-2">
-                        <Button size="sm" :disabled="savingFile" @click="handleUpdateFile(f.id)">{{ savingFile ? 'Saving...' : 'Save' }}</Button>
-                        <Button variant="outline" size="sm" @click="editingFileId = ''">Cancel</Button>
-                      </div>
-                    </div>
-                    <div v-else class="p-3 max-h-64 overflow-auto">
-                      <pre class="whitespace-pre-wrap font-mono text-xs text-muted-foreground">{{ f.content }}</pre>
-                    </div>
-                  </div>
-                </div>
-                <p v-if="agentFiles.length === 0 && !showFileForm" class="text-muted-foreground text-sm">No agent files yet. Add your main agent instruction file to get started.</p>
+                <p>&#x1f4a1; Manage the database-stored <strong>Agent Instruction</strong> and <strong>Skill Files</strong> in the dedicated sections below (they remain editable while you edit the agent config).</p>
               </div>
             </CardContent>
           </Card>
@@ -255,7 +193,7 @@
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <label v-for="tool in BUILTIN_TOOLS" :key="tool.name"
                   class="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-muted/50 cursor-pointer">
-                  <Checkbox :checked="editForm.builtinToolsEnabled.includes(tool.name)" @update:checked="toggleEditTool(tool.name, $event)" />
+                  <Checkbox :model-value="editForm.builtinToolsEnabled.includes(tool.name)" @update:model-value="toggleEditTool(tool.name, $event)" />
                   <div>
                     <p class="text-sm font-medium">{{ tool.label }}</p>
                     <p class="text-xs text-muted-foreground">{{ tool.description }}</p>
@@ -290,60 +228,122 @@
         </form>
       </template>
 
-      <!-- Agent Files Section (Database source only) -->
-      <Card v-if="!editing && (agent as any).sourceType === 'database'">
+      <!-- Agent Instruction (Agent.md) — Database source only -->
+      <Card v-if="(agent as any).sourceType === 'database'">
         <CardHeader>
           <div class="flex items-center justify-between">
             <div>
-              <CardTitle>Agent/Skill File Content</CardTitle>
-              <CardDescription>Markdown files stored in database. The first root-level .md file is the main agent instruction.</CardDescription>
+              <CardTitle>Agent Instruction</CardTitle>
+              <CardDescription>The main <code class="bg-muted px-1 rounded text-xs">Agent.md</code> instruction file. This is the primary system prompt the Copilot SDK reads at session start. The first root-level markdown file is treated as the main instruction.</CardDescription>
             </div>
-            <Button size="sm" @click="showFileForm = true">+ Add File</Button>
+            <Button v-if="!mainAgentFile" size="sm" @click="startCreateMainFile">+ Create Agent.md</Button>
           </div>
         </CardHeader>
         <CardContent>
-          <!-- New File Form -->
-          <div v-if="showFileForm" class="mb-4 p-4 rounded-lg border border-border bg-muted/30">
+          <!-- Main file create form -->
+          <div v-if="creatingMainFile" class="mb-4 p-4 rounded-lg border border-border bg-muted/30">
             <div v-if="fileError" class="mb-3 p-2 rounded-md bg-destructive/10 text-destructive text-sm">{{ fileError }}</div>
-            <form @submit.prevent="handleCreateFile" class="space-y-3">
+            <form @submit.prevent="handleCreateMainFile" class="space-y-3">
               <div class="space-y-1.5">
                 <Label class="text-xs">File Path *</Label>
-                <Input v-model="fileForm.filePath" required placeholder="agent.md or skills/research.md" class="font-mono" />
-                <p class="text-xs text-muted-foreground">Use forward slashes for subdirectories.</p>
+                <Input v-model="fileForm.filePath" required placeholder="Agent.md" class="font-mono" />
+                <p class="text-xs text-muted-foreground">Root-level <code class="bg-muted px-1 rounded text-[10px]">.md</code> file (no slashes). The first root markdown file becomes the main instruction.</p>
               </div>
               <div class="space-y-1.5">
                 <Label class="text-xs">Content *</Label>
-                <Textarea v-model="fileForm.content" required rows="8" class="font-mono text-xs" placeholder="# Agent Instructions&#10;&#10;Your markdown content..." />
+                <Textarea v-model="fileForm.content" required rows="10" class="font-mono text-xs" placeholder="# Agent Instructions&#10;&#10;Describe the agent's role, tools, and behaviour..." />
               </div>
               <div class="flex gap-2">
-                <Button type="submit" size="sm" :disabled="savingFile">{{ savingFile ? 'Creating...' : 'Create File' }}</Button>
-                <Button variant="outline" size="sm" type="button" @click="showFileForm = false; fileError = ''">Cancel</Button>
+                <Button type="submit" size="sm" :disabled="savingFile">{{ savingFile ? 'Creating…' : 'Create Agent.md' }}</Button>
+                <Button variant="outline" size="sm" type="button" @click="cancelCreateFile">Cancel</Button>
               </div>
             </form>
           </div>
 
-          <!-- File List -->
-          <div class="space-y-2">
-            <div v-for="f in agentFiles" :key="f.id"
-              class="rounded-lg border border-border overflow-hidden">
-              <div class="flex items-center justify-between p-3 bg-muted/30 cursor-pointer" @click="toggleFileExpand(f.id)">
-                <div class="flex items-center gap-2">
-                  <span class="text-xs">{{ expandedFileId === f.id ? '&#x25bc;' : '&#x25b6;' }}</span>
-                  <span class="font-mono text-sm font-medium">{{ f.filePath }}</span>
-                  <Badge v-if="isMainAgentFile(f.filePath)" variant="default" class="text-[10px]">Main</Badge>
+          <!-- Main file display -->
+          <div v-if="mainAgentFile" class="rounded-lg border border-border overflow-hidden">
+            <div class="flex items-center justify-between p-3 bg-muted/30 cursor-pointer" @click="toggleFileExpand(mainAgentFile.id)">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs">{{ expandedFileId === mainAgentFile.id ? '&#x25bc;' : '&#x25b6;' }}</span>
+                <span class="font-mono text-sm font-medium truncate">{{ mainAgentFile.filePath }}</span>
+                <Badge variant="default" class="text-[10px]">Main</Badge>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-xs text-muted-foreground">{{ new Date(mainAgentFile.updatedAt).toLocaleDateString() }}</span>
+                <Button variant="ghost" size="sm" class="h-7 text-xs" @click.stop="startEditFile(mainAgentFile)">Edit</Button>
+                <Button variant="ghost" size="sm" class="text-destructive h-7 text-xs" @click.stop="handleDeleteFile(mainAgentFile.id, mainAgentFile.filePath)">Delete</Button>
+              </div>
+            </div>
+            <div v-if="expandedFileId === mainAgentFile.id" class="border-t border-border">
+              <div v-if="editingFileId === mainAgentFile.id" class="p-3">
+                <Textarea v-model="editFileContent" rows="14" class="font-mono text-xs" />
+                <div class="flex gap-2 mt-2">
+                  <Button size="sm" :disabled="savingFile" @click="handleUpdateFile(mainAgentFile.id)">{{ savingFile ? 'Saving…' : 'Save' }}</Button>
+                  <Button variant="outline" size="sm" @click="editingFileId = ''">Cancel</Button>
                 </div>
-                <div class="flex items-center gap-2">
+              </div>
+              <div v-else class="p-3 max-h-80 overflow-auto">
+                <pre class="whitespace-pre-wrap font-mono text-xs text-muted-foreground">{{ mainAgentFile.content }}</pre>
+              </div>
+            </div>
+          </div>
+          <p v-else-if="!creatingMainFile" class="text-muted-foreground text-sm">
+            No main instruction file yet. Click <strong>+ Create Agent.md</strong> to add one.
+          </p>
+        </CardContent>
+      </Card>
+
+      <!-- Skill Files — Database source only -->
+      <Card v-if="(agent as any).sourceType === 'database'">
+        <CardHeader>
+          <div class="flex items-center justify-between">
+            <div>
+              <CardTitle>Skill Files</CardTitle>
+              <CardDescription>Additional markdown files loaded as agent skills. Conventionally placed under <code class="bg-muted px-1 rounded text-xs">skills/</code>. The Copilot SDK can reference these via file-reading tools during a session.</CardDescription>
+            </div>
+            <Button size="sm" @click="startCreateSkillFile">+ Add Skill File</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <!-- Skill file create form -->
+          <div v-if="creatingSkillFile" class="mb-4 p-4 rounded-lg border border-border bg-muted/30">
+            <div v-if="fileError" class="mb-3 p-2 rounded-md bg-destructive/10 text-destructive text-sm">{{ fileError }}</div>
+            <form @submit.prevent="handleCreateSkillFile" class="space-y-3">
+              <div class="space-y-1.5">
+                <Label class="text-xs">File Path *</Label>
+                <Input v-model="fileForm.filePath" required placeholder="skills/research.md" class="font-mono" />
+                <p class="text-xs text-muted-foreground">Use forward slashes for subdirectories (e.g. <code class="bg-muted px-1 rounded text-[10px]">skills/research.md</code>).</p>
+              </div>
+              <div class="space-y-1.5">
+                <Label class="text-xs">Content *</Label>
+                <Textarea v-model="fileForm.content" required rows="8" class="font-mono text-xs" placeholder="# Skill: Research&#10;&#10;Describe when and how the agent should use this skill..." />
+              </div>
+              <div class="flex gap-2">
+                <Button type="submit" size="sm" :disabled="savingFile">{{ savingFile ? 'Creating…' : 'Create Skill File' }}</Button>
+                <Button variant="outline" size="sm" type="button" @click="cancelCreateFile">Cancel</Button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Skill files list -->
+          <div class="space-y-2">
+            <div v-for="f in skillFiles" :key="f.id" class="rounded-lg border border-border overflow-hidden">
+              <div class="flex items-center justify-between p-3 bg-muted/30 cursor-pointer" @click="toggleFileExpand(f.id)">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-xs">{{ expandedFileId === f.id ? '&#x25bc;' : '&#x25b6;' }}</span>
+                  <span class="font-mono text-sm font-medium truncate">{{ f.filePath }}</span>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
                   <span class="text-xs text-muted-foreground">{{ new Date(f.updatedAt).toLocaleDateString() }}</span>
                   <Button variant="ghost" size="sm" class="h-7 text-xs" @click.stop="startEditFile(f)">Edit</Button>
                   <Button variant="ghost" size="sm" class="text-destructive h-7 text-xs" @click.stop="handleDeleteFile(f.id, f.filePath)">Delete</Button>
                 </div>
               </div>
-              <!-- Preview / Edit area -->
               <div v-if="expandedFileId === f.id" class="border-t border-border">
                 <div v-if="editingFileId === f.id" class="p-3">
                   <Textarea v-model="editFileContent" rows="12" class="font-mono text-xs" />
                   <div class="flex gap-2 mt-2">
-                    <Button size="sm" :disabled="savingFile" @click="handleUpdateFile(f.id)">{{ savingFile ? 'Saving...' : 'Save' }}</Button>
+                    <Button size="sm" :disabled="savingFile" @click="handleUpdateFile(f.id)">{{ savingFile ? 'Saving…' : 'Save' }}</Button>
                     <Button variant="outline" size="sm" @click="editingFileId = ''">Cancel</Button>
                   </div>
                 </div>
@@ -352,8 +352,8 @@
                 </div>
               </div>
             </div>
-            <p v-if="agentFiles.length === 0 && !showFileForm" class="text-muted-foreground text-sm">
-              No agent files yet. Add your main agent instruction file to get started.
+            <p v-if="skillFiles.length === 0 && !creatingSkillFile" class="text-muted-foreground text-sm">
+              No skill files yet. Click <strong>+ Add Skill File</strong> to create one under <code class="bg-muted px-1 rounded text-[10px]">skills/</code>.
             </p>
           </div>
         </CardContent>
@@ -683,12 +683,45 @@ const fileForm = reactive({ filePath: '', content: '' });
 const expandedFileId = ref('');
 const editingFileId = ref('');
 const editFileContent = ref('');
+const creatingMainFile = ref(false);
+const creatingSkillFile = ref(false);
+
+// Sort agent files so the first root-level markdown file is the "main" Agent.md.
+const sortedAgentFiles = computed(() => {
+  return [...agentFiles.value].sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+});
+
+const mainAgentFile = computed(() => {
+  return sortedAgentFiles.value.find((f: any) => f.filePath.endsWith('.md') && !f.filePath.includes('/')) ?? null;
+});
+
+const skillFiles = computed(() => {
+  const main = mainAgentFile.value;
+  return sortedAgentFiles.value.filter((f: any) => f.id !== main?.id);
+});
 
 function isMainAgentFile(filePath: string): boolean {
-  const rootMdFiles = agentFiles.value
-    .filter((f: any) => f.filePath.endsWith('.md') && !f.filePath.includes('/'))
-    .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  return rootMdFiles.length > 0 && rootMdFiles[0].filePath === filePath;
+  return mainAgentFile.value?.filePath === filePath;
+}
+
+function cancelCreateFile() {
+  creatingMainFile.value = false;
+  creatingSkillFile.value = false;
+  showFileForm.value = false;
+  fileError.value = '';
+  Object.assign(fileForm, { filePath: '', content: '' });
+}
+
+function startCreateMainFile() {
+  cancelCreateFile();
+  Object.assign(fileForm, { filePath: 'Agent.md', content: '' });
+  creatingMainFile.value = true;
+}
+
+function startCreateSkillFile() {
+  cancelCreateFile();
+  Object.assign(fileForm, { filePath: 'skills/', content: '' });
+  creatingSkillFile.value = true;
 }
 
 function toggleFileExpand(id: string) {
@@ -702,7 +735,7 @@ function startEditFile(f: any) {
   editFileContent.value = f.content;
 }
 
-async function handleCreateFile() {
+async function createFileFromForm() {
   fileError.value = '';
   savingFile.value = true;
   try {
@@ -710,12 +743,19 @@ async function handleCreateFile() {
       method: 'POST', headers,
       body: { filePath: fileForm.filePath, content: fileForm.content },
     });
-    showFileForm.value = false;
-    Object.assign(fileForm, { filePath: '', content: '' });
+    cancelCreateFile();
     await refreshFiles();
-  } catch (e: any) { fileError.value = e?.data?.error || 'Failed to create file'; }
-  finally { savingFile.value = false; }
+  } catch (e: any) {
+    fileError.value = e?.data?.error || 'Failed to create file';
+  } finally {
+    savingFile.value = false;
+  }
 }
+
+async function handleCreateMainFile() { await createFileFromForm(); }
+async function handleCreateSkillFile() { await createFileFromForm(); }
+// Backwards-compat alias for any remaining references.
+async function handleCreateFile() { await createFileFromForm(); }
 
 async function handleUpdateFile(fileId: string) {
   savingFile.value = true;
