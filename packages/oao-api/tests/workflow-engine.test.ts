@@ -34,7 +34,7 @@ const mockDb = {
     userVariables: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     workspaceVariables: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     mcpServerConfigs: { findMany: vi.fn().mockResolvedValue([]) },
-    models: { findFirst: vi.fn() },
+    models: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
   },
   insert: vi.fn().mockReturnValue({
     values: vi.fn().mockReturnValue({
@@ -61,15 +61,22 @@ vi.mock('../src/database/index.js', () => ({
 }));
 
 // ─── Mock Copilot SDK ───────────────────────────────────────────────
+const mockSessionSendAndWait = vi.fn().mockResolvedValue({ data: { content: 'AI response output' } });
+const mockSessionDisconnect = vi.fn().mockResolvedValue(undefined);
+const mockSessionOn = vi.fn();
+const mockCreateSession = vi.fn().mockResolvedValue({
+  sendAndWait: mockSessionSendAndWait,
+  on: mockSessionOn,
+  disconnect: mockSessionDisconnect,
+});
+const mockClientStop = vi.fn().mockResolvedValue(undefined);
+const mockCopilotClientConstructor = vi.fn().mockImplementation(() => ({
+  createSession: mockCreateSession,
+  stop: mockClientStop,
+}));
+
 vi.mock('@github/copilot-sdk', () => ({
-  CopilotClient: vi.fn().mockImplementation(() => ({
-    createSession: vi.fn().mockResolvedValue({
-      sendAndWait: vi.fn().mockResolvedValue({ data: { content: 'AI response output' } }),
-      on: vi.fn(),
-      disconnect: vi.fn(),
-    }),
-    stop: vi.fn(),
-  })),
+  CopilotClient: mockCopilotClientConstructor,
   approveAll: vi.fn(),
   defineTool: vi.fn((name: string, config: unknown) => ({ name, _config: config })),
 }));
@@ -142,6 +149,30 @@ beforeEach(() => {
   mockDb.query.agentVariables.findFirst.mockResolvedValue(null);
   mockDb.query.userVariables.findFirst.mockResolvedValue(null);
   mockDb.query.workspaceVariables.findFirst.mockResolvedValue(null);
+  mockDb.query.models.findMany.mockResolvedValue([
+    {
+      id: 'model-001',
+      workspaceId: 'ws-001',
+      name: 'gpt-4.1',
+      provider: 'github',
+      providerType: 'github',
+      customProviderType: null,
+      customBaseUrl: null,
+      customAuthType: 'none',
+      customWireApi: null,
+      customAzureApiVersion: null,
+      creditCost: '1.00',
+      isActive: true,
+    },
+  ]);
+  mockCreateSession.mockResolvedValue({
+    sendAndWait: mockSessionSendAndWait,
+    on: mockSessionOn,
+    disconnect: mockSessionDisconnect,
+  });
+  mockSessionSendAndWait.mockResolvedValue({ data: { content: 'AI response output' } });
+  mockSessionDisconnect.mockResolvedValue(undefined);
+  mockClientStop.mockResolvedValue(undefined);
   mockCreateAgentPod.mockResolvedValue('oao-agent-step-001');
   mockWaitForPodCompletion.mockResolvedValue('Succeeded');
   mockDeleteAgentPod.mockResolvedValue(undefined);
@@ -383,6 +414,83 @@ describe('Session lock', () => {
     expect(mockPrepareAgentWorkspace).toHaveBeenCalledWith(expect.objectContaining({
       githubTokenEncrypted: 'encrypted-github-app-credential',
       githubCredentialSubType: 'github_app',
+    }));
+  });
+
+  it('builds custom provider session config from the selected model record', async () => {
+    const { executeCopilotSession } = await import('../src/services/workflow-engine.js');
+    const { encrypt } = await import('@oao/shared');
+
+    mockDb.query.agentVariables.findFirst.mockResolvedValueOnce({
+      id: 'copilot-cred-001',
+      key: 'LLM_API_KEY',
+      valueEncrypted: encrypt('byok-secret'),
+      credentialSubType: 'secret_text',
+    });
+    mockDb.query.models.findMany.mockResolvedValue([
+      {
+        id: 'model-002',
+        workspaceId: 'ws-001',
+        name: 'gpt-4o-byok',
+        provider: 'openai',
+        providerType: 'custom',
+        customProviderType: 'openai',
+        customBaseUrl: 'https://api.openai.com/v1',
+        customAuthType: 'api_key',
+        customWireApi: 'responses',
+        customAzureApiVersion: null,
+        creditCost: '2.50',
+        isActive: true,
+      },
+    ]);
+
+    await executeCopilotSession({
+      agent: {
+        id: 'agent-001',
+        name: 'Test Agent',
+        userId: 'user-001',
+        sourceType: 'github_repo',
+        gitRepoUrl: 'https://github.com/example/repo',
+        gitBranch: 'main',
+        agentFilePath: '.github/agents/test.md',
+        skillsPaths: [],
+        skillsDirectory: null,
+        githubTokenEncrypted: null,
+        githubTokenCredentialId: null,
+        copilotTokenCredentialId: 'copilot-cred-001',
+        builtinToolsEnabled: [],
+        mcpJsonTemplate: null,
+      } as any,
+      step: {
+        id: 'step-001',
+        name: 'Step 1',
+        promptTemplate: 'Test prompt',
+        reasoningEffort: null,
+        model: 'gpt-4o-byok',
+        timeoutSeconds: 60,
+      } as any,
+      stepExecutionId: 'step-exec-001',
+      resolvedPrompt: 'Test prompt',
+      precedentOutput: '',
+      credentials: new Map(),
+      properties: new Map(),
+      envVariables: new Map(),
+      workerRuntime: 'static',
+      workflowId: 'wf-001',
+      workspaceId: 'ws-001',
+      executionId: 'exec-001',
+      userId: 'user-001',
+    });
+
+    expect(mockCopilotClientConstructor).toHaveBeenCalledWith();
+    expect(mockCreateSession).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-4o-byok',
+      provider: expect.objectContaining({
+        type: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'byok-secret',
+        wireApi: 'responses',
+      }),
     }));
   });
 

@@ -64,6 +64,10 @@ export const mcpServerTypeEnum = pgEnum('mcp_server_type', ['custom', 'oao_platf
 export const conversationStatusEnum = pgEnum('conversation_status', ['active', 'archived']);
 export const conversationMessageRoleEnum = pgEnum('conversation_message_role', ['user', 'assistant']);
 export const conversationMessageStatusEnum = pgEnum('conversation_message_status', ['pending', 'completed', 'failed']);
+export const modelProviderTypeEnum = pgEnum('model_provider_type', ['github', 'custom']);
+export const customModelProviderTypeEnum = pgEnum('custom_model_provider_type', ['openai', 'azure', 'anthropic']);
+export const customModelProviderAuthTypeEnum = pgEnum('custom_model_provider_auth_type', ['none', 'api_key', 'bearer_token']);
+export const customModelProviderWireApiEnum = pgEnum('custom_model_provider_wire_api', ['completions', 'responses']);
 
 // ─── Workspaces ──────────────────────────────────────────────────────
 
@@ -556,6 +560,12 @@ export const models = pgTable('models', {
     .references(() => workspaces.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 100 }).notNull(),
   provider: varchar('provider', { length: 50 }).notNull().default('github'),
+  providerType: modelProviderTypeEnum('provider_type').notNull().default('github'),
+  customProviderType: customModelProviderTypeEnum('custom_provider_type'),
+  customBaseUrl: text('custom_base_url'),
+  customAuthType: customModelProviderAuthTypeEnum('custom_auth_type').notNull().default('none'),
+  customWireApi: customModelProviderWireApiEnum('custom_wire_api'),
+  customAzureApiVersion: varchar('custom_azure_api_version', { length: 50 }),
   description: text('description'),
   creditCost: decimal('credit_cost', { precision: 10, scale: 2 }).notNull().default('1.00'),
   isActive: boolean('is_active').notNull().default(true),

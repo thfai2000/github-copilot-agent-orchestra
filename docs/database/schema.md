@@ -59,6 +59,10 @@ erDiagram
 | `conversation_status` | `active`, `archived` |
 | `conversation_message_role` | `user`, `assistant` |
 | `conversation_message_status` | `pending`, `completed`, `failed` |
+| `model_provider_type` | `github`, `custom` |
+| `custom_model_provider_type` | `openai`, `azure`, `anthropic` |
+| `custom_model_provider_auth_type` | `none`, `api_key`, `bearer_token` |
+| `custom_model_provider_wire_api` | `completions`, `responses` |
 | `resource_scope` | `user`, `workspace` |
 | `auth_provider_type` | `database`, `ldap` |
 | `event_scope` | `workspace`, `user` |
@@ -79,6 +83,8 @@ erDiagram
 ## Table Reference
 
 `workflow_executions.workflowSnapshot` preserves workflow-level allocation timeout plus any step-level worker runtime overrides so retries and history remain stable even after later edits.
+
+`models` now stores provider routing metadata as part of the workspace model registry, including whether the model uses the GitHub provider or a custom provider plus its runtime connection settings.
 
 For full table definitions, see:
 

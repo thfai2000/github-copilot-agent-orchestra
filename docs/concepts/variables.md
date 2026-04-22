@@ -33,7 +33,7 @@ Credentials are injected into the Copilot session's credential map. They are use
 - **`simple_http_request` tool** — via Jinja2 <span v-pre>`{{ credentials.KEY }}`</span> in headers, auth, and URLs
 - **Prompt templates** — via Jinja2 <span v-pre>`{{ credentials.KEY }}`</span> (use <span v-pre>`{{ properties.KEY }}`</span> for non-secret config instead)
 - **Git authentication** — agents can reference a credential and OAO applies subtype-specific checkout behavior
-- **Copilot authentication** — agents can reference a credential variable to override the default GitHub Copilot token
+- **Model authentication** — agents can reference a credential variable to override the default GitHub Copilot token / LLM API key
 
 Credentials are **never exposed to agents directly**. They are resolved server-side during Jinja2 template rendering. See [AI Security](/concepts/security).
 
@@ -120,7 +120,12 @@ For Git checkout, OAO interprets the selected credential subtype automatically:
 - **GitHub App** — installation token exchange at runtime
 - **User Account** — username/password HTTPS checkout
 
-For Copilot authentication, use a **GitHub Token** (or compatible Secret Text) credential variable. The credential is resolved at execution time, keeping the actual secret out of the agent configuration.
+For model authentication, use a **GitHub Token** or **Secret Text** credential variable. The credential is resolved at execution time, keeping the actual secret out of the agent configuration.
+
+OAO uses the selected credential differently depending on the workspace model record:
+
+- **GitHub provider models** use it as the Copilot `githubToken`
+- **Custom provider models** use it as the `apiKey` or `bearerToken` inside `SessionConfig.provider`
 
 ## API Examples
 

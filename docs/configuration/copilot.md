@@ -11,10 +11,10 @@ sequenceDiagram
     participant Session as Copilot Session
     participant Tools as Tool Handlers
 
-    Engine->>SDK: new CopilotClient()
+    Engine->>SDK: new CopilotClient({ githubToken? })
     Engine->>Engine: Build system message<br/>(agent markdown + skills)
     Engine->>Engine: Prepare tools<br/>(built-in + MCP)
-    Engine->>SDK: client.createSession({model, tools, systemMessage})
+    Engine->>SDK: client.createSession({model, tools, systemMessage, provider?})
     SDK-->>Session: Session created
     Engine->>Session: session.sendAndWait({prompt}, timeout)
 
@@ -111,11 +111,22 @@ The model is resolved per step:
 2. **Workflow default model** (fallback)
 3. **Platform default** (`DEFAULT_AGENT_MODEL` env var, defaults to `gpt-4.1`)
 
+Each workspace model record also controls the session provider mode:
+
+- **GitHub provider** — OAO creates `CopilotClient({ githubToken })` and does not send `SessionConfig.provider`
+- **Custom provider** — OAO keeps the Copilot client default and sends `SessionConfig.provider` from the model record (`type`, `baseUrl`, auth mode, wire API, Azure API version)
+
+For custom providers, OAO resolves the auth secret in this order:
+1. Agent-level `GitHub Copilot Token / LLM API Key` credential
+2. `DEFAULT_LLM_API_KEY`
+3. `GITHUB_TOKEN`
+
 ## Key Environment Variables
 
 | Variable | Description |
 |---|---|
-| `GITHUB_TOKEN` | Token for GitHub Copilot SDK authentication |
+| `GITHUB_TOKEN` | Default GitHub Copilot token, and fallback auth for custom providers when `DEFAULT_LLM_API_KEY` is unset |
+| `DEFAULT_LLM_API_KEY` | Optional default API key / bearer token for custom model providers |
 | `DEFAULT_AGENT_MODEL` | Default model when none specified (default: `gpt-4.1`) |
 | `AGENT_DATABASE_URL` | PostgreSQL connection string |
 | `REDIS_URL` | Redis connection string |

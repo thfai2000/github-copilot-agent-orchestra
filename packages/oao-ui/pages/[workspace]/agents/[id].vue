@@ -52,7 +52,13 @@
               <div class="flex flex-col gap-2"><label class="text-sm font-medium">Branch</label><InputText v-model="editForm.gitBranch" /></div>
               <div class="flex flex-col gap-2"><label class="text-sm font-medium">Agent File Path</label><InputText v-model="editForm.agentFilePath" /></div>
               <div class="flex flex-col gap-2"><label class="text-sm font-medium">Skills Directory</label><InputText v-model="editForm.skillsDirectory" /></div>
+              <div class="flex flex-col gap-2"><label class="text-sm font-medium">Git Auth Credential</label><Select v-model="editForm.githubTokenCredentialId" :options="gitCredOptions" optionLabel="optionLabel" optionValue="id" placeholder="None" showClear /></div>
             </template>
+            <div class="flex flex-col gap-2 md:col-span-2">
+              <label class="text-sm font-medium">GitHub Copilot Token / LLM API Key</label>
+              <Select v-model="editForm.copilotTokenCredentialId" :options="modelAuthCredOptions" optionLabel="optionLabel" optionValue="id" placeholder="Use the default system token or API key" showClear />
+              <small class="text-surface-400">Used for GitHub-provider sessions or as the API key / bearer token for custom providers. Leave blank to use `DEFAULT_LLM_API_KEY`, then `GITHUB_TOKEN` as a fallback.</small>
+            </div>
             <div class="flex flex-col gap-2 md:col-span-2">
               <label class="text-sm font-medium">mcp.json.template</label>
               <Textarea v-model="editForm.mcpJsonTemplate" rows="8" class="font-mono text-sm" placeholder='{"mcpServers": {"example": {"command": "npx", "args": ["-y", "some-mcp-server"]}}}' />
@@ -281,7 +287,7 @@ const ws = computed(() => (route.params.workspace as string) || 'default');
 const agentId = computed(() => route.params.id as string);
 const { buildCredentialOptions, filterGitAuthCredentialOptions, filterCopilotCredentialOptions } = useAgentCredentialOptions();
 
-const activeTab = ref('overview');
+const activeTab = ref<string | number>('overview');
 const editing = ref(false);
 const editError = ref('');
 const savingEdit = ref(false);
@@ -390,6 +396,13 @@ const { data: wsVarsData } = await useFetch('/api/variables?scope=workspace', { 
 const workspaceVars = computed(() => (wsVarsData.value as any)?.variables ?? []);
 const { data: userVarsData } = await useFetch('/api/variables?scope=user', { headers });
 const userVars = computed(() => (userVarsData.value as any)?.variables ?? []);
+const credentialOptions = computed(() => buildCredentialOptions([
+  { scope: 'agent', scopeLabel: 'Agent', variables: agentVars.value },
+  { scope: 'user', scopeLabel: 'User', variables: userVars.value },
+  { scope: 'workspace', scopeLabel: 'Workspace', variables: workspaceVars.value },
+]));
+const gitCredOptions = computed(() => filterGitAuthCredentialOptions(credentialOptions.value, editForm.githubTokenCredentialId));
+const modelAuthCredOptions = computed(() => filterCopilotCredentialOptions(credentialOptions.value, editForm.copilotTokenCredentialId));
 
 // Merge variables: Agent > User > Workspace priority
 const mergedVars = computed(() => {
@@ -425,6 +438,8 @@ function scopeSeverity(s: string) { return { workspace: 'secondary', user: 'info
 // Edit form
 const editForm = reactive({
   name: '', description: '', gitRepoUrl: '', gitBranch: '', agentFilePath: '', skillsDirectory: '',
+  githubTokenCredentialId: null as string | null,
+  copilotTokenCredentialId: null as string | null,
   mcpJsonTemplate: '',
 });
 
@@ -502,6 +517,8 @@ watch(agent, (a) => {
   if (a) Object.assign(editForm, {
     name: a.name, description: a.description || '', gitRepoUrl: a.gitRepoUrl || '',
     gitBranch: a.gitBranch || '', agentFilePath: a.agentFilePath || '', skillsDirectory: a.skillsDirectory || '',
+    githubTokenCredentialId: a.githubTokenCredentialId || null,
+    copilotTokenCredentialId: a.copilotTokenCredentialId || null,
     mcpJsonTemplate: a.mcpJsonTemplate || '',
   });
   initialToolSelectionPayload.value = a?.builtinToolsEnabled ?? [];
@@ -561,7 +578,10 @@ async function handleSaveEdit() {
       if (gitBranch) body.gitBranch = gitBranch;
       if (agentFilePath) body.agentFilePath = agentFilePath;
       body.skillsDirectory = skillsDirectory || null;
+      body.githubTokenCredentialId = editForm.githubTokenCredentialId || null;
     }
+
+    body.copilotTokenCredentialId = editForm.copilotTokenCredentialId || null;
 
     await $fetch(`/api/agents/${agentId.value}`, { method: 'PUT', headers, body });
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Agent updated', life: 3000 });

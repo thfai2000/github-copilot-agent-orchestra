@@ -885,6 +885,49 @@ describe('Admin routes — model management', () => {
     expect(res.status).toBe(201);
   });
 
+  it('POST /api/admin/models creates custom provider model with full provider fields', async () => {
+    const token = await getToken('workspace_admin');
+    mockInsertReturning.mockResolvedValueOnce([{
+      id: TEST_MODEL_ID,
+      name: 'gpt-4o-byok',
+      provider: 'openai',
+      providerType: 'custom',
+      customProviderType: 'openai',
+      customBaseUrl: 'https://api.openai.com/v1',
+      customAuthType: 'api_key',
+      customWireApi: 'responses',
+      customAzureApiVersion: null,
+      creditCost: '3.00',
+      isActive: true,
+    }]);
+
+    const res = await app.request('/api/admin/models', {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        name: 'gpt-4o-byok',
+        provider: 'openai',
+        providerType: 'custom',
+        customProviderType: 'openai',
+        customBaseUrl: 'https://api.openai.com/v1',
+        customAuthType: 'api_key',
+        customWireApi: 'responses',
+        creditCost: '3.00',
+        isActive: true,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'gpt-4o-byok',
+      providerType: 'custom',
+      customProviderType: 'openai',
+      customBaseUrl: 'https://api.openai.com/v1',
+      customAuthType: 'api_key',
+      customWireApi: 'responses',
+    }));
+  });
+
   it('PUT /api/admin/models/:id updates model', async () => {
     const token = await getToken('workspace_admin');
     // findFirst: existing model in same workspace
@@ -920,6 +963,33 @@ describe('Admin routes — model management', () => {
       body: JSON.stringify({ name: 'hacked' }),
     });
     expect(res.status).toBe(403);
+  });
+
+  it('PUT /api/admin/models/:id rejects incomplete custom provider updates against existing state', async () => {
+    const token = await getToken('workspace_admin');
+    mockFindFirst.mockResolvedValueOnce({
+      id: TEST_MODEL_ID,
+      name: 'gpt-4.1',
+      workspaceId: TEST_WORKSPACE_ID,
+      providerType: 'github',
+      customProviderType: null,
+      customBaseUrl: null,
+      customAzureApiVersion: null,
+    });
+
+    const res = await app.request(`/api/admin/models/${TEST_MODEL_ID}`, {
+      method: 'PUT',
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        providerType: 'custom',
+        customProviderType: 'azure',
+        customBaseUrl: 'https://example.openai.azure.com',
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/azure api version/i);
   });
 
   it('DELETE /api/admin/models/:id deletes model', async () => {

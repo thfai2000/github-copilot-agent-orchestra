@@ -268,7 +268,7 @@ curl -X POST http://localhost:4002/api/agents \
 | `skillsDirectory` | string | — | Auto-discover `.md` files in directory |
 | `githubToken` | string | — | Inline Git token (prefer `githubTokenCredentialId`) |
 | `githubTokenCredentialId` | uuid | — | Reference to credential variable |
-| `copilotTokenCredentialId` | uuid | — | Copilot auth credential reference |
+| `copilotTokenCredentialId` | uuid | — | GitHub Copilot token / LLM API key credential reference |
 | `scope` | `"user"` \| `"workspace"` | `"user"` | `workspace` requires admin role |
 | `builtinToolsEnabled` | string[] or object | all tools | Legacy built-in array, or `{ "mode": "explicit", "names": [...] }` for a full tool allowlist |
 | `mcpJsonTemplate` | string | — | Jinja2 template for MCP config (max 50KB) |
@@ -343,7 +343,7 @@ Get a specific agent version snapshot, including files and agent-scoped variable
 
 ### `PUT /api/agents/:id`
 
-Partial update. Setting `githubTokenCredentialId` automatically clears any inline token and vice versa. **Auth**: JWT/PAT · **Role**: `creator_user`+
+Partial update. Setting `githubTokenCredentialId` automatically clears any inline token and vice versa. `copilotTokenCredentialId` is used for GitHub-provider sessions or as the secret source for custom model providers. **Auth**: JWT/PAT · **Role**: `creator_user`+
 
 ### `DELETE /api/agents/:id`
 
@@ -1078,7 +1078,7 @@ Requires `workspace_admin` or `super_admin` role.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/admin/models` | List workspace models |
-| `POST` | `/api/admin/models` | Create model (`name`, `provider`, `creditCost`, `isActive`) |
+| `POST` | `/api/admin/models` | Create model (`name`, `provider`, `providerType`, custom provider fields, `creditCost`, `isActive`) |
 | `PUT` | `/api/admin/models/:id` | Update model |
 | `DELETE` | `/api/admin/models/:id` | Delete model |
 
@@ -1086,8 +1086,29 @@ Requires `workspace_admin` or `super_admin` role.
 curl -X POST http://localhost:4002/api/admin/models \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "gpt-4o", "provider": "github", "creditCost": "2.00"}'
+  -d '{
+    "name": "gpt-4o-byok",
+    "provider": "openai",
+    "providerType": "custom",
+    "customProviderType": "openai",
+    "customBaseUrl": "https://api.openai.com/v1",
+    "customAuthType": "api_key",
+    "customWireApi": "responses",
+    "creditCost": "2.00",
+    "isActive": true
+  }'
 ```
+
+Custom provider fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `providerType` | `github` \| `custom` | Selects GitHub-managed vs BYOK session routing |
+| `customProviderType` | `openai` \| `azure` \| `anthropic` | Required when `providerType=custom` |
+| `customBaseUrl` | string (URL) | Required when `providerType=custom` |
+| `customAuthType` | `none` \| `api_key` \| `bearer_token` | How OAO injects the selected secret |
+| `customWireApi` | `completions` \| `responses` | Optional OpenAI/Azure wire API override |
+| `customAzureApiVersion` | string | Required for Azure custom providers |
 
 ### Quotas
 

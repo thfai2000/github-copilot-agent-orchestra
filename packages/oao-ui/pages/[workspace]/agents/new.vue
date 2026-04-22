@@ -73,12 +73,12 @@
       </Card>
 
       <Card>
-        <template #title>Copilot Authentication</template>
+        <template #title>Model Authentication</template>
         <template #content>
           <div class="flex flex-col gap-2">
-            <label class="text-sm font-medium">Copilot Token Credential</label>
-            <Select v-model="form.copilotTokenCredentialId" :options="copilotCredOptions" optionLabel="optionLabel" optionValue="id" placeholder="Use default GITHUB_TOKEN" showClear />
-            <small class="text-surface-400">A GitHub Token credential for the Copilot SDK. Leave blank to use the system GITHUB_TOKEN.</small>
+            <label class="text-sm font-medium">GitHub Copilot Token / LLM API Key</label>
+            <Select v-model="form.copilotTokenCredentialId" :options="copilotCredOptions" optionLabel="optionLabel" optionValue="id" placeholder="Use the default system token or API key" showClear />
+            <small class="text-surface-400">Used for GitHub-provider sessions or as the API key / bearer token for custom providers. Leave blank to use `DEFAULT_LLM_API_KEY`, then `GITHUB_TOKEN` as a fallback.</small>
           </div>
         </template>
       </Card>

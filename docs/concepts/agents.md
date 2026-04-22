@@ -94,14 +94,19 @@ Supported Git credential subtypes:
 
 Git authentication is only used for repository access. It does not affect GitHub Copilot sessions.
 
-### Copilot Authentication
+### Model Authentication
 
-Copilot authentication is configured separately from Git checkout.
+Model authentication is configured separately from Git checkout.
 
-- **System default** — uses the server-level `GITHUB_TOKEN`
-- **Credential variable** — overrides the Copilot token for that agent's sessions
+- **System default** — uses `DEFAULT_LLM_API_KEY`, then falls back to `GITHUB_TOKEN`
+- **Credential variable** — overrides the GitHub Copilot token / LLM API key for that agent's sessions
 
-Use a **GitHub Token** credential (or compatible Secret Text credential) for Copilot authentication.
+Use a **GitHub Token** or **Secret Text** credential for the `GitHub Copilot Token / LLM API Key` selector.
+
+The selected workspace model decides how OAO uses that secret:
+
+- **GitHub provider models** pass it to `CopilotClient({ githubToken })`
+- **Custom provider models** pass it into `SessionConfig.provider.apiKey` or `SessionConfig.provider.bearerToken`
 
 ### Database File Content
 

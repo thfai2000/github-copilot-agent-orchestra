@@ -61,6 +61,7 @@ services:
       JWT_SECRET: your-jwt-secret-change-in-production
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+      DEFAULT_LLM_API_KEY: ${DEFAULT_LLM_API_KEY}
       DEFAULT_AGENT_MODEL: gpt-4.1
       OAO_PLATFORM_API_URL: http://oao-api:4002
     depends_on:
@@ -79,6 +80,7 @@ services:
       JWT_SECRET: your-jwt-secret-change-in-production
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+      DEFAULT_LLM_API_KEY: ${DEFAULT_LLM_API_KEY}
       OAO_PLATFORM_API_URL: http://oao-api:4002
     depends_on:
       postgres:
@@ -96,6 +98,7 @@ services:
       JWT_SECRET: your-jwt-secret-change-in-production
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+      DEFAULT_LLM_API_KEY: ${DEFAULT_LLM_API_KEY}
       OAO_PLATFORM_API_URL: http://oao-api:4002
     depends_on:
       postgres:
@@ -122,6 +125,7 @@ volumes:
 ```bash
 # .env — place in the same directory as docker-compose.yml
 GITHUB_TOKEN=your-github-token-here
+DEFAULT_LLM_API_KEY=
 ```
 
 ### 4. Start the Platform
@@ -166,7 +170,8 @@ Register your first account at http://localhost:3002/register.
 | `REDIS_URL` | Yes | Redis connection string |
 | `JWT_SECRET` | Yes | Secret for JWT signing (change in production) |
 | `ENCRYPTION_KEY` | Yes | 32-byte hex key for AES-256-GCM encryption |
-| `GITHUB_TOKEN` | Yes | GitHub token for Copilot SDK |
+| `GITHUB_TOKEN` | Yes | Default GitHub Copilot token and fallback custom-provider auth |
+| `DEFAULT_LLM_API_KEY` | No | Optional default API key / bearer token for custom model providers |
 | `DEFAULT_AGENT_MODEL` | No | Default model (default: `gpt-4.1`) |
 | `LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error` |
 

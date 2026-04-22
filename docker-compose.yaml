@@ -53,6 +53,7 @@ services:
       JWT_SECRET: "change-me-in-production-at-least-32-characters-long"
       ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       GITHUB_TOKEN: "${GITHUB_TOKEN}"
+      DEFAULT_LLM_API_KEY: "${DEFAULT_LLM_API_KEY}"
       MAX_CONCURRENT_AGENTS: "10"
       DEFAULT_AGENT_QUOTA: "50"
       DEFAULT_AGENT_MODEL: "gpt-4.1"

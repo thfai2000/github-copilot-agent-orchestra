@@ -38,8 +38,9 @@ REDIS_URL=redis://localhost:6379
 JWT_SECRET=your-jwt-secret-here
 ENCRYPTION_KEY=your-32-byte-hex-key-here
 
-# GitHub Copilot SDK
+# GitHub Copilot SDK / BYOK auth
 GITHUB_TOKEN=your-github-token
+DEFAULT_LLM_API_KEY=
 
 # Public API origin used for Jira change-notification callbacks
 PUBLIC_API_BASE_URL=http://localhost:4002

@@ -97,6 +97,7 @@ secrets:
   JWT_SECRET: "your-jwt-secret-change-in-production"
   ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   GITHUB_TOKEN: "your-github-token"
+  DEFAULT_LLM_API_KEY: ""
 ```
 
 ### 3. Deploy with Helm

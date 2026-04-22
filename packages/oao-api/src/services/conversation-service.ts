@@ -23,7 +23,7 @@ import { buildTemplateContext } from './jinja-renderer.js';
 import { loadConfiguredMcpTools } from './platform-mcp.js';
 import { publishRealtimeEvent } from './realtime-bus.js';
 import { getRedisConnection } from './redis.js';
-import { resolveWorkspaceActiveModelName } from './workspace-models.js';
+import { resolveWorkspaceActiveModelName, resolveWorkspaceModelSession } from './workspace-models.js';
 
 const logger = createLogger('conversation-service');
 
@@ -206,7 +206,7 @@ function ensureSupportedCopilotCredentialSubType(credential: ResolvedScopedCrede
   const credentialSubType = credential.credentialSubType || 'secret_text';
   if (credentialSubType !== 'secret_text' && credentialSubType !== 'github_token') {
     throw new Error(
-      `Copilot authentication does not support credential subtype "${credentialSubType}" for variable ${credential.key}. Use a GitHub Token or Secret Text credential instead.`,
+      `GitHub Copilot Token / LLM API Key does not support credential subtype "${credentialSubType}" for variable ${credential.key}. Use a GitHub Token or Secret Text credential instead.`,
     );
   }
 }
@@ -575,7 +575,6 @@ async function runConversationSession(params: {
   let workspace: Awaited<ReturnType<typeof prepareAgentWorkspace>> | Awaited<ReturnType<typeof prepareDbAgentWorkspace>> | null = null;
   const toolCalls: Array<{ tool: string; args: unknown }> = [];
   const mcpCleanups: Array<() => Promise<void>> = [];
-  const originalGithubToken = process.env.GITHUB_TOKEN;
   let copilotTokenOverride: string | null = null;
 
   try {
@@ -606,7 +605,7 @@ async function runConversationSession(params: {
       });
 
       if (!copilotCredential) {
-        throw new Error('Configured Copilot authentication credential was not found in agent, user, or workspace variables.');
+        throw new Error('Configured GitHub Copilot Token / LLM API Key credential was not found in agent, user, or workspace variables.');
       }
 
       ensureSupportedCopilotCredentialSubType(copilotCredential);
@@ -667,16 +666,16 @@ async function runConversationSession(params: {
 
     const allTools = [...builtInTools, ...mcpTools];
 
-    if (copilotTokenOverride) {
-      process.env.GITHUB_TOKEN = copilotTokenOverride;
-    }
-
-    const client = new CopilotClient();
-    const model = await resolveWorkspaceActiveModelName({
+    const resolvedModelSession = await resolveWorkspaceModelSession({
       workspaceId,
       requestedModel: modelOverride,
       envDefaultModel: process.env.DEFAULT_AGENT_MODEL,
+      authToken: copilotTokenOverride ?? process.env.DEFAULT_LLM_API_KEY ?? process.env.GITHUB_TOKEN ?? null,
     });
+    const client = resolvedModelSession.provider
+      ? new CopilotClient()
+      : new CopilotClient(copilotTokenOverride ? { githubToken: copilotTokenOverride } : undefined);
+    const model = resolvedModelSession.modelName;
     const sessionOptions: Record<string, unknown> = {
       model,
       tools: allTools,
@@ -694,6 +693,10 @@ async function runConversationSession(params: {
         content: systemContent,
       },
     };
+
+    if (resolvedModelSession.provider) {
+      sessionOptions.provider = resolvedModelSession.provider;
+    }
 
     if (reasoningEffort) {
       sessionOptions.reasoningEffort = reasoningEffort;
@@ -900,14 +903,6 @@ async function runConversationSession(params: {
     };
   } finally {
     clearInterval(lockExtendTimer);
-    if (copilotTokenOverride) {
-      if (originalGithubToken !== undefined) {
-        process.env.GITHUB_TOKEN = originalGithubToken;
-      } else {
-        delete process.env.GITHUB_TOKEN;
-      }
-    }
-
     for (const cleanup of mcpCleanups) {
       try {
         await cleanup();
