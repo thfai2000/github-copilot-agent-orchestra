@@ -144,6 +144,12 @@ function renderVersionsModule(versions) {
 function buildDocs(checkoutDir, base, outDir, versions, shouldOverrideVersionsFile = false) {
   if (shouldOverrideVersionsFile) {
     writeFileSync(path.join(checkoutDir, 'docs', '.vitepress', 'versions.ts'), renderVersionsModule(versions));
+    // Copy current config.mts so old tag worktrees use the latest version dropdown format
+    // (old tags may have root-relative version links that get doubled by VitePress's withBase())
+    copyFileSync(
+      path.join(rootDir, 'docs', '.vitepress', 'config.mts'),
+      path.join(checkoutDir, 'docs', '.vitepress', 'config.mts'),
+    );
   }
 
   mkdirSync(path.dirname(outDir), { recursive: true });
