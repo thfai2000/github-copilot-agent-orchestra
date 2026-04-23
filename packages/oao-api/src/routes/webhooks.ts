@@ -77,7 +77,9 @@ webhooks.post('/:registrationId', async (c) => {
     const secret = decrypt(registration.hmacSecretEncrypted);
     const expectedSig = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
 
-    if (!timingSafeEqual(Buffer.from(signature!), Buffer.from(expectedSig))) {
+    const providedSignature = Buffer.from(signature!, 'utf8');
+    const expectedSignature = Buffer.from(expectedSig, 'utf8');
+    if (providedSignature.length !== expectedSignature.length || !timingSafeEqual(providedSignature, expectedSignature)) {
       return c.json({ error: 'Invalid signature' }, 401);
     }
   }

@@ -28,8 +28,13 @@ open-agent-orchestra/
 ├── docs/                 # VitePress documentation site
 │   └── .vitepress/       # VitePress configuration
 │
+├── tests/
+│   └── e2e/              # Playwright end-to-end suites, helpers, and global setup
+│
 └── migrations/           # SQL migration scripts
 ```
+
+The cluster-backed Playwright helpers provision an in-cluster LDAP fixture for auth-provider flows. The current fixture account is `Test User` with password `secret`.
 
 ## Packages
 
@@ -185,6 +190,7 @@ helm/
 | `npm run dev:ui` | Start OAO-UI only (hot reload) |
 | `npm run lint` | ESLint across all packages |
 | `npm test` | Vitest across all packages |
+| `npm run test:e2e` | Playwright end-to-end suite against the local deployment |
 | `npm run docs:dev` | VitePress dev server for docs |
 | `npm run docs:build` | Build static docs site |
 

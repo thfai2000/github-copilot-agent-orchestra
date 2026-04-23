@@ -19,8 +19,14 @@
 
           <form @submit.prevent="handleLogin" class="flex flex-col gap-4">
             <div class="flex flex-col gap-2">
-              <label for="email" class="text-sm font-medium">Email</label>
-              <InputText id="email" v-model="form.email" type="email" required placeholder="you@example.com" />
+              <label for="identifier" class="text-sm font-medium">{{ identifierLabel }}</label>
+              <InputText
+                id="identifier"
+                v-model="form.identifier"
+                :type="identifierInputType"
+                required
+                :placeholder="identifierPlaceholder"
+              />
             </div>
             <div class="flex flex-col gap-2">
               <label for="password" class="text-sm font-medium">Password</label>
@@ -45,11 +51,15 @@ const router = useRouter();
 const route = useRoute();
 const workspaceSlug = computed(() => (route.params.workspace as string) || 'default');
 
-const form = reactive({ email: '', password: '' });
+const form = reactive({ identifier: '', password: '' });
 const error = ref('');
 const loading = ref(false);
 const selectedProvider = ref('database');
 const providers = ref<Array<{ type: string; name: string; label: string }>>([]);
+
+const identifierLabel = computed(() => selectedProvider.value === 'ldap' ? 'Username or Email' : 'Email');
+const identifierPlaceholder = computed(() => selectedProvider.value === 'ldap' ? 'username or email' : 'you@example.com');
+const identifierInputType = computed(() => selectedProvider.value === 'ldap' ? 'text' : 'email');
 
 onMounted(async () => {
   try {
@@ -70,7 +80,7 @@ async function handleLogin() {
   try {
     const res = await $fetch<{ token: string; user: any }>('/api/auth/login', {
       method: 'POST',
-      body: { email: form.email, password: form.password, provider: selectedProvider.value },
+      body: { identifier: form.identifier, password: form.password, provider: selectedProvider.value },
     });
     setAuth(res.token, res.user);
     await nextTick();
@@ -78,7 +88,7 @@ async function handleLogin() {
   } catch (e: any) {
     const status = e?.status || e?.statusCode;
     const msg = e?.data?.error || e?.statusMessage || '';
-    if (status === 401) error.value = 'Invalid email or password.';
+    if (status === 401) error.value = 'Invalid credentials.';
     else if (status === 400) error.value = msg || 'Authentication error.';
     else error.value = 'Cannot reach OAO API. Please check that the service is running.';
   } finally {

@@ -1,0 +1,65 @@
+name: Create Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semantic version bump to apply on main
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      version:
+        description: Explicit version when bump=custom (for example 1.30.11)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  tag-release:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump release version
+        run: |
+          if [ "${{ inputs.bump }}" = "custom" ]; then
+            if [ -z "${{ inputs.version }}" ]; then
+              echo "Custom releases require the version input." >&2
+              exit 1
+            fi
+            node scripts/release-version.mjs --set "${{ inputs.version }}"
+          else
+            node scripts/release-version.mjs --bump "${{ inputs.bump }}"
+          fi
+
+      - name: Commit release metadata and create tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git add package.json package-lock.json packages/*/package.json helm/oao-platform/Chart.yaml helm/oao-platform/values.yaml
+          git commit -m "release: ${VERSION}"
+          git tag -a "v${VERSION}" -m "Release ${VERSION}"
+          git push origin main
+          git push origin "v${VERSION}"

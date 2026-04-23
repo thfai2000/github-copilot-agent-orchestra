@@ -21,3 +21,4 @@ packages/*/.output/
 packages/*/*.tsbuildinfo
 docs/.vitepress/cache
 packages/*/coverage/
+.tmp-docs-site/

@@ -65,24 +65,48 @@ auth.post('/register', async (c) => {
 });
 
 const loginSchema = z.object({
-  email: emailSchema,
+  email: z.string().trim().optional(),
+  identifier: z.string().trim().optional(),
   password: z.string().min(1),
   provider: z.enum(['database', 'ldap']).optional(), // optional — auto-detect if not specified
+}).superRefine((body, ctx) => {
+  const identifier = body.identifier?.trim() || body.email?.trim();
+  if (!identifier) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['identifier'],
+      message: 'identifier is required',
+    });
+    return;
+  }
+
+  // Database auth is email-based. LDAP may use usernames or email depending on the provider config.
+  if ((body.provider ?? 'database') === 'database') {
+    const parsed = emailSchema.safeParse(identifier);
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: body.identifier?.trim() ? ['identifier'] : ['email'],
+        message: 'Database login requires a valid email address',
+      });
+    }
+  }
 });
 
 auth.post('/login', async (c) => {
   const body = loginSchema.parse(await c.req.json());
+  const identifier = body.identifier?.trim() || body.email?.trim() || '';
 
   // Determine which provider to use
   const requestedProvider = body.provider ?? 'database';
 
   if (requestedProvider === 'ldap') {
-    return handleLdapLogin(c, body.email, body.password);
+    return handleLdapLogin(c, identifier, body.password);
   }
 
   // Database login (default)
   const user = await db.query.users.findFirst({
-    where: eq(users.email, body.email),
+    where: eq(users.email, identifier),
   });
   if (!user) {
     return c.json({ error: 'Invalid credentials' }, 401);

@@ -464,8 +464,11 @@ const { data, refresh: refreshConversation } = await useFetch<any>(computed(() =
 const { data: agentsData } = await useFetch<any>('/api/agents?limit=200', { headers });
 const { data: modelsData } = await useFetch<any>('/api/models', { headers });
 
-const conversation = computed(() => data.value?.conversation ?? null);
-const agent = computed(() => data.value?.agent ?? null);
+const lastResolvedConversationPayload = ref<any | null>(null);
+const resolvedConversationPayload = computed(() => data.value?.conversation ? data.value : lastResolvedConversationPayload.value);
+
+const conversation = computed(() => resolvedConversationPayload.value?.conversation ?? null);
+const agent = computed(() => resolvedConversationPayload.value?.agent ?? null);
 
 const breadcrumbs = computed(() => [
   { label: 'Home', route: `/${ws.value}` },
@@ -598,7 +601,7 @@ async function refreshToolCatalog() {
   }
 }
 
-watch(() => data.value?.messages, (messages) => {
+watch(() => resolvedConversationPayload.value?.messages, (messages) => {
   localMessages.value = ((messages ?? []) as any[]).map((message) => ({
     id: message.id,
     role: message.role,
@@ -615,12 +618,17 @@ watch(() => data.value?.messages, (messages) => {
 }, { immediate: true });
 
 watch(() => data.value, (payload) => {
-  if (!payload) return;
+  if (payload?.conversation) {
+    lastResolvedConversationPayload.value = payload;
+  }
 
-  settingsForm.agentId = payload.conversation?.agentId || '';
+  const resolvedPayload = payload?.conversation ? payload : lastResolvedConversationPayload.value;
+  if (!resolvedPayload) return;
+
+  settingsForm.agentId = resolvedPayload.conversation?.agentId || '';
   staleModelName.value = null;
-  settingsForm.model = typeof payload.settings?.model === 'string' ? payload.settings.model : null;
-  settingsForm.reasoningEffort = typeof payload.settings?.reasoningEffort === 'string' ? payload.settings.reasoningEffort : null;
+  settingsForm.model = typeof resolvedPayload.settings?.model === 'string' ? resolvedPayload.settings.model : null;
+  settingsForm.reasoningEffort = typeof resolvedPayload.settings?.reasoningEffort === 'string' ? resolvedPayload.settings.reasoningEffort : null;
 }, { immediate: true });
 
 watch([() => settingsForm.model, availableModelNames], ([model, activeModels]) => {
@@ -637,6 +645,27 @@ watch([() => settingsForm.model, availableModelNames], ([model, activeModels]) =
 watch(() => conversation.value?.agentId, () => {
   void refreshToolCatalog();
 }, { immediate: true });
+
+function getRequestErrorMessage(error: any, fallback: string) {
+  return error?.data?.error
+    || error?.data?.message
+    || error?.statusMessage
+    || error?.message
+    || fallback;
+}
+
+async function refreshConversationSafely() {
+  try {
+    await refreshConversation();
+  } catch {
+    toast.add({
+      severity: 'warn',
+      summary: 'Conversation refresh failed',
+      detail: 'Showing the last available conversation state.',
+      life: 5000,
+    });
+  }
+}
 
 const hasPendingAssistant = computed(() => localMessages.value.some((message) => message.role === 'assistant' && message.status === 'pending'));
 const canChangeAgent = computed(() => !!conversation.value && conversation.value.status === 'active' && !hasPendingAssistant.value && !switchingAgent.value);
@@ -693,6 +722,8 @@ onStreamEvent('conversation.message.started', (event: any) => {
 
   const target = localMessages.value.find((message) => message.id === messageId);
   if (!target) return;
+
+  pendingAssistantClientId.value = messageId;
 
   applyStartedMetadata(target, event.data);
   appendLiveEvent(target, {
@@ -831,7 +862,7 @@ onStreamEvent('conversation.message.completed', async (event: any) => {
   }
 
   pendingAssistantClientId.value = null;
-  await refreshConversation();
+  await refreshConversationSafely();
   scrollToBottom();
 });
 
@@ -847,7 +878,7 @@ onStreamEvent('conversation.message.failed', async (event: any) => {
 
   pendingAssistantClientId.value = null;
   toast.add({ severity: 'error', summary: 'Conversation Failed', detail: event.data?.error || 'Failed to receive assistant response.', life: 5000 });
-  await refreshConversation();
+  await refreshConversationSafely();
   scrollToBottom();
 });
 
@@ -1097,16 +1128,18 @@ async function sendMessage() {
       },
     });
 
-    await refreshConversation();
+    await refreshConversationSafely();
   } catch (e: any) {
-    const message = e?.data?.error || 'Failed to send message.';
-    const target = localMessages.value.find((entry) => entry.id === pendingAssistantClientId.value);
+    const message = getRequestErrorMessage(e, 'Failed to send message.');
+    const target = localMessages.value.find((entry) => entry.id === pendingAssistantClientId.value)
+      ?? localMessages.value.find((entry) => entry.role === 'assistant' && entry.status === 'pending');
     if (target) {
       target.status = 'failed';
       target.error = message;
+      target.updatedAt = new Date().toISOString();
     }
     toast.add({ severity: 'error', summary: 'Send Failed', detail: message, life: 5000 });
-    await refreshConversation();
+    await refreshConversationSafely();
   } finally {
     sending.value = false;
   }

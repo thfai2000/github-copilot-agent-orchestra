@@ -210,6 +210,7 @@ async function handleCreate() {
   error.value = '';
   saving.value = true;
   try {
+    await nextTick();
     const labels = labelsInput.value.split(',').map(s => s.trim()).filter(Boolean);
     const steps = form.steps.map((s, i) => ({
       name: s.name, promptTemplate: s.promptTemplate, stepOrder: i + 1,
@@ -217,7 +218,20 @@ async function handleCreate() {
       reasoningEffort: s.reasoningEffort || undefined, workerRuntime: s.workerRuntime || undefined,
       timeoutSeconds: s.timeoutSeconds,
     }));
-    await $fetch('/api/workflows', { method: 'POST', headers, body: { ...form, labels, steps, triggers: form.triggers } });
+    const body = {
+      name: form.name,
+      description: form.description || undefined,
+      labels,
+      defaultAgentId: form.defaultAgentId || undefined,
+      defaultModel: form.defaultModel || undefined,
+      defaultReasoningEffort: form.defaultReasoningEffort || undefined,
+      workerRuntime: form.workerRuntime,
+      stepAllocationTimeoutSeconds: form.stepAllocationTimeoutSeconds,
+      scope: form.scope,
+      steps,
+      triggers: form.triggers,
+    };
+    await $fetch('/api/workflows', { method: 'POST', headers, body });
     toast.add({ severity: 'success', summary: 'Success', detail: 'Workflow created', life: 3000 });
     router.push(`/${ws.value}/workflows`);
   } catch (e: any) {

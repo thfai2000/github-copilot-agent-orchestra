@@ -1,6 +1,6 @@
 {
   "name": "@oao/shared",
-  "version": "1.0.0",
+  "version": "1.30.11",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

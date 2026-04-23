@@ -61,14 +61,16 @@
         <template v-if="form.providerType === 'ldap'">
           <Divider />
           <p class="text-sm font-semibold text-surface-600">LDAP Configuration</p>
-          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Server URL *</label><InputText v-model="form.config.url" placeholder="ldap://ldap.example.com:389" /></div>
-          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Bind DN</label><InputText v-model="form.config.bindDn" placeholder="cn=admin,dc=example,dc=com" /></div>
-          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Bind Password</label><Password v-model="form.config.bindCredential" toggleMask :feedback="false" /></div>
-          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Search Base *</label><InputText v-model="form.config.searchBase" placeholder="dc=example,dc=com" /></div>
-          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Search Filter</label><InputText v-model="form.config.searchFilter" placeholder="(uid={{username}})" /></div>
-          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Email Attribute</label><InputText v-model="form.config.emailAttribute" placeholder="mail" /></div>
-          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Name Attribute</label><InputText v-model="form.config.nameAttribute" placeholder="cn" /></div>
-          <div class="flex items-center gap-2"><Checkbox v-model="form.config.startTls" :binary="true" inputId="startTls" /><label for="startTls" class="text-sm">Use StartTLS</label></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium" for="ldap-url">Server URL *</label><input id="ldap-url" v-model="ldapConfig.url" type="text" class="p-inputtext p-component w-full" placeholder="ldap://ldap.example.com:389" /></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium" for="ldap-bind-dn">Bind DN</label><input id="ldap-bind-dn" v-model="ldapConfig.bindDn" type="text" class="p-inputtext p-component w-full" placeholder="cn=admin,dc=example,dc=com" /></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium">Bind Password</label><Password v-model="ldapConfig.bindCredential" toggleMask :feedback="false" /></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium" for="ldap-search-base">Search Base *</label><input id="ldap-search-base" v-model="ldapConfig.searchBase" type="text" class="p-inputtext p-component w-full" placeholder="dc=example,dc=com" /></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium" for="ldap-search-filter">Search Filter</label><input id="ldap-search-filter" v-model="ldapConfig.searchFilter" type="text" class="p-inputtext p-component w-full" placeholder="(uid={{username}})" /></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium" for="ldap-username-attribute">Username Attribute</label><input id="ldap-username-attribute" v-model="ldapConfig.usernameAttribute" type="text" class="p-inputtext p-component w-full" placeholder="uid" /></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium" for="ldap-email-attribute">Email Attribute</label><input id="ldap-email-attribute" v-model="ldapConfig.emailAttribute" type="text" class="p-inputtext p-component w-full" placeholder="mail" /></div>
+          <div class="flex flex-col gap-2"><label class="text-sm font-medium" for="ldap-name-attribute">Name Attribute</label><input id="ldap-name-attribute" v-model="ldapConfig.nameAttribute" type="text" class="p-inputtext p-component w-full" placeholder="cn" /></div>
+          <div class="flex items-center gap-2"><Checkbox v-model="ldapConfig.startTls" :binary="true" inputId="startTls" /><label for="startTls" class="text-sm">Use StartTLS</label></div>
+          <div class="flex items-center gap-2"><Checkbox v-model="ldapConfig.tlsRejectUnauthorized" :binary="true" inputId="tlsRejectUnauthorized" /><label for="tlsRejectUnauthorized" class="text-sm">Verify TLS Certificates</label></div>
         </template>
 
         <Divider />
@@ -101,7 +103,18 @@ const providerTypes = [
 ];
 
 function emptyConfig() {
-  return { url: '', bindDn: '', bindCredential: '', searchBase: '', searchFilter: '', emailAttribute: '', nameAttribute: '', startTls: false };
+  return {
+    url: '',
+    bindDn: '',
+    bindCredential: '',
+    searchBase: '',
+    searchFilter: '',
+    usernameAttribute: '',
+    emailAttribute: '',
+    nameAttribute: '',
+    startTls: false,
+    tlsRejectUnauthorized: true,
+  };
 }
 
 const form = reactive({
@@ -109,8 +122,9 @@ const form = reactive({
   providerType: 'database',
   isEnabled: true,
   priority: 0,
-  config: emptyConfig(),
 });
+
+const ldapConfig = reactive(emptyConfig());
 
 const { data, pending, refresh } = await useFetch('/api/auth-providers', { headers });
 const providers = computed(() => (data.value as any)?.providers ?? []);
@@ -127,15 +141,16 @@ function startEdit(p: any) {
     providerType: p.providerType,
     isEnabled: p.isEnabled,
     priority: p.priority ?? 0,
-    config: { ...emptyConfig(), ...cfg, bindCredential: '' },
   });
+  Object.assign(ldapConfig, { ...emptyConfig(), ...cfg, bindCredential: '' });
   showCreate.value = true;
 }
 
 function closeDialog() {
   showCreate.value = false;
   editId.value = null;
-  Object.assign(form, { name: '', providerType: 'database', isEnabled: true, priority: 0, config: emptyConfig() });
+  Object.assign(form, { name: '', providerType: 'database', isEnabled: true, priority: 0 });
+  Object.assign(ldapConfig, emptyConfig());
   formError.value = '';
 }
 
@@ -143,18 +158,23 @@ async function handleSubmit() {
   formError.value = '';
   saving.value = true;
   try {
+    await nextTick();
     const body: any = { name: form.name, providerType: form.providerType, isEnabled: form.isEnabled, priority: form.priority };
     if (form.providerType === 'ldap') {
+      const configSnapshot = JSON.parse(JSON.stringify(ldapConfig)) as ReturnType<typeof emptyConfig>;
+
       // Only send non-empty config fields
       const cfg: Record<string, unknown> = {};
-      if (form.config.url) cfg.url = form.config.url;
-      if (form.config.bindDn) cfg.bindDn = form.config.bindDn;
-      if (form.config.bindCredential) cfg.bindCredential = form.config.bindCredential;
-      if (form.config.searchBase) cfg.searchBase = form.config.searchBase;
-      if (form.config.searchFilter) cfg.searchFilter = form.config.searchFilter;
-      if (form.config.emailAttribute) cfg.emailAttribute = form.config.emailAttribute;
-      if (form.config.nameAttribute) cfg.nameAttribute = form.config.nameAttribute;
-      if (form.config.startTls) cfg.startTls = true;
+      if (configSnapshot.url) cfg.url = configSnapshot.url;
+      if (configSnapshot.bindDn) cfg.bindDn = configSnapshot.bindDn;
+      if (configSnapshot.bindCredential) cfg.bindCredential = configSnapshot.bindCredential;
+      if (configSnapshot.searchBase) cfg.searchBase = configSnapshot.searchBase;
+      if (configSnapshot.searchFilter) cfg.searchFilter = configSnapshot.searchFilter;
+      if (configSnapshot.usernameAttribute) cfg.usernameAttribute = configSnapshot.usernameAttribute;
+      if (configSnapshot.emailAttribute) cfg.emailAttribute = configSnapshot.emailAttribute;
+      if (configSnapshot.nameAttribute) cfg.nameAttribute = configSnapshot.nameAttribute;
+      if (configSnapshot.startTls) cfg.startTls = true;
+      if (configSnapshot.tlsRejectUnauthorized === false) cfg.tlsRejectUnauthorized = false;
       body.config = cfg;
     } else {
       body.config = {};

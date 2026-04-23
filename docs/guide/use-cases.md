@@ -244,6 +244,51 @@ flowchart TD
 
 ---
 
+## 8. Product Acceptance Matrix
+
+The business scenarios above become release criteria only when they are validated as concrete operator journeys. The matrix below turns the higher-level examples into testable end-to-end cases for local Docker Desktop Kubernetes deployments.
+
+| ID | Journey | Actor | Preconditions | Expected Result |
+|----|---------|-------|---------------|-----------------|
+| `E2E-01` | Login and session bootstrap | Super admin or workspace admin | Platform is reachable and the workspace exists | User can sign in, land on the workspace dashboard, and keep access across navigations without re-entering credentials |
+| `E2E-02` | Database agent authoring | Workspace admin | Authenticated user with agent write access | User can create a database-backed agent, edit its metadata, and immediately use it from a new conversation |
+| `E2E-03` | Conversation send loop | Workflow or conversation operator | Agent exists and conversation page loads successfully | User message is persisted, the assistant response is either streamed or a clear failure is rendered, and the page does not get stuck in a permanent loading state |
+| `E2E-04` | Workflow authoring with trigger persistence | Workflow author | Agent exists and workflow create permission is granted | Workflow is created with webhook or schedule triggers, the trigger summary matches the saved configuration, and reopening the detail page shows the persisted trigger state |
+| `E2E-05` | Manual Run with required inputs | Workflow author or admin | Workflow has an active webhook trigger with declared parameters | Missing required inputs return `400` with the missing parameter names, while a valid payload is accepted and routed through the same workflow event pipeline as a webhook |
+| `E2E-06` | Admin user and auth-provider operations | Super admin or workspace admin | Admin pages are reachable | Admin can create users, change roles, configure LDAP, test connectivity, and authenticate through the configured provider |
+| `E2E-07` | Workflow cleanup and reversibility | Workflow author | Workflow and triggers already exist | Operator can deactivate or delete the workflow without leaving orphaned triggers or broken detail views |
+
+### Detailed Operator Notes
+
+| Area | What to Validate | Why It Matters |
+|------|------------------|----------------|
+| Agent creation | Name, instructions, source type, and saved version | Agents are the root unit of execution; if authoring is flaky, every higher-level workflow becomes unreliable |
+| Trigger summaries | Webhook path, parameter count, cron text, or exact datetime value | Operators need to verify saved automation intent without reopening edit forms |
+| Manual Run | Required parameters, optional parameters, and accepted payload path | This is the fastest way to prove a workflow contract before exposing a public webhook |
+| Conversation resilience | Pending assistant rows, refresh recovery, and visible error states | AI calls fail in real systems; the UI must degrade into a diagnosable state instead of hiding or duplicating messages |
+| Cleanup paths | Delete confirmation, redirect, and follow-up list state | Regression here leaves hidden debris: stale triggers, orphaned agents, or broken navigation |
+
+## 9. Security Abuse Cases
+
+Treat hostile inputs as first-class product use cases, not optional hardening work. The platform should respond with a deliberate failure mode instead of an internal error or duplicate execution.
+
+| Abuse Case | Simulated Attacker Behavior | Required Platform Response |
+|------------|-----------------------------|----------------------------|
+| Malformed webhook signature | Send a very short or malformed `X-Signature` value to an HMAC-protected webhook | Return `401 Invalid signature` and never throw a server-side length mismatch error |
+| Webhook replay attack | Resend the same signed payload with the same `X-Event-Id` | Return `already_processed` and do not emit a second workflow run |
+| Manual-run contract bypass | Call `POST /api/workflows/:id/run` without required inputs declared by the webhook trigger | Return `400 Missing required inputs: ...` and do not enqueue execution |
+| PAT enumeration attempt | List API tokens after creation and inspect metadata responses | Only token metadata is returned; raw tokens and token hashes are never exposed again after initial creation |
+| Agent file traversal | Submit `..` or absolute paths when creating agent files | Reject the request before any file content is stored or versioned |
+
+### Abuse-Case Review Checklist
+
+1. Every authentication or trigger boundary returns a deliberate `401`, `403`, or `400` instead of a `500`.
+2. Replay protection is verified with the same identifiers an external system would resend.
+3. Required workflow inputs are enforced consistently for both webhook traffic and manual operator-triggered runs.
+4. Security responses remain observable in the UI or API response body so operators can diagnose what was blocked.
+
+---
+
 ## Patterns Summary
 
 | Pattern | Trigger | Key Features |

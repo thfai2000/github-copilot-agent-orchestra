@@ -25,12 +25,12 @@ sequenceDiagram
     UI-->>U: Show provider selector (if multiple)
 
     alt Database Login
-        U->>API: POST /api/auth/login (provider: database)
+        U->>API: POST /api/auth/login (provider: database, identifier=email)
         API->>DB: Verify bcrypt hash
         DB-->>API: Match
         API-->>U: JWT token
     else LDAP Login
-        U->>API: POST /api/auth/login (provider: ldap)
+        U->>API: POST /api/auth/login (provider: ldap, identifier=username-or-email)
         API->>LDAP: Service account bind
         LDAP-->>API: Bound
         API->>LDAP: Search for user DN
@@ -84,6 +84,12 @@ When an LDAP user logs in for the first time, OAO automatically creates a local 
 
 On subsequent logins, the user's name and email are updated from LDAP to stay in sync.
 
+## Login Identifier Semantics
+
+- **Database login** expects the identifier to be an email address.
+- **LDAP login** accepts a generic identifier string, because the LDAP search filter may target `mail`, `uid`, `cn`, `sAMAccountName`, or another attribute.
+- The OAO login UI therefore presents LDAP as **Username or Email**, not email-only.
+
 ## Password Management
 
 - **Database users**: Can change passwords via Settings → Change Password
@@ -91,7 +97,7 @@ On subsequent logins, the user's name and email are updated from LDAP to stay in
 
 ## Provider Priority
 
-When multiple providers of the same type exist, they are tried in **priority order** (lower number = higher priority). This allows fallback configurations.
+When multiple providers of the same type exist, they are tried in **priority order** (**higher** number = higher priority). This allows fallback configurations.
 
 ## Security
 

@@ -7,6 +7,8 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { createHmac } from 'crypto';
 import type { Hono } from 'hono';
 
+const mockAuthenticateLdap = vi.fn();
+
 // ─── Mock database ──────────────────────────────────────────────────
 const mockFindFirst = vi.fn();
 const mockFindMany = vi.fn().mockResolvedValue([]);
@@ -62,6 +64,7 @@ function buildChainableMock() {
       workspaces: { findFirst: mockFindFirst, findMany: mockFindMany },
       agentFiles: { findFirst: mockFindFirst, findMany: mockFindMany },
       models: { findFirst: mockFindFirst, findMany: mockFindMany },
+      authProviders: { findFirst: mockFindFirst, findMany: mockFindMany },
       workspaceQuotaSettings: { findFirst: mockFindFirst },
       creditUsage: { findFirst: mockFindFirst, findMany: mockFindMany },
     },
@@ -77,6 +80,10 @@ const mockDb = buildChainableMock();
 
 vi.mock('../src/database/index.js', () => ({
   db: mockDb,
+}));
+
+vi.mock('../src/services/ldap-auth.js', () => ({
+  authenticateLdap: mockAuthenticateLdap,
 }));
 
 vi.mock('../src/services/redis.js', () => ({
@@ -149,6 +156,7 @@ beforeEach(() => {
   mockInsertReturning.mockReset();
   mockUpdateReturning.mockReset();
   mockDeleteWhere.mockReset();
+  mockAuthenticateLdap.mockReset();
 
   // Restore defaults
   mockFindFirst.mockResolvedValue(null);
@@ -156,6 +164,7 @@ beforeEach(() => {
   mockInsertReturning.mockResolvedValue([{ id: 'new-id-001' }]);
   mockUpdateReturning.mockResolvedValue([{ id: 'updated-id-001' }]);
   mockDeleteWhere.mockResolvedValue([]);
+  mockAuthenticateLdap.mockResolvedValue(null);
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -171,8 +180,12 @@ async function getToken(role = 'creator_user', workspaceId = TEST_WORKSPACE_ID) 
   });
 }
 
-function authHeaders(token: string) {
-  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+function authHeaders(token: string, extraHeaders: Record<string, string> = {}) {
+  return {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    ...extraHeaders,
+  };
 }
 
 // ======================================================================
@@ -307,6 +320,34 @@ describe('Webhook HMAC verification', () => {
     expect(json.error).toMatch(/signature/i);
   });
 
+  it('POST /api/webhooks/:id rejects malformed short signatures without throwing', async () => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const body = JSON.stringify({ event: 'push' });
+
+    mockFindFirst.mockResolvedValueOnce({
+      id: TEST_WEBHOOK_REG_ID,
+      hmacSecretEncrypted: encrypt(WEBHOOK_SECRET),
+      isActive: true,
+      requestCount: 0,
+      triggerId: null,
+    });
+
+    const res = await app.request(`/api/webhooks/${TEST_WEBHOOK_REG_ID}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Signature': 'abc',
+        'X-Timestamp': timestamp,
+        'X-Event-Id': 'evt-short-sig-001',
+      },
+      body,
+    });
+
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error).toMatch(/signature/i);
+  });
+
   it('POST /api/webhooks/:id accepts valid HMAC signature', async () => {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const body = JSON.stringify({ event: 'push', data: { ref: 'main' } });
@@ -333,6 +374,49 @@ describe('Webhook HMAC verification', () => {
     expect(res.status).toBe(202);
     const json = await res.json();
     expect(json.status).toBe('accepted');
+  });
+
+  it('POST /api/webhooks/:id dedupes replayed X-Event-Id values', async () => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const body = JSON.stringify({ event: 'push', data: { ref: 'main' } });
+    const sig = makeSignature(timestamp, body, WEBHOOK_SECRET);
+
+    mockFindFirst.mockResolvedValueOnce({
+      id: TEST_WEBHOOK_REG_ID,
+      hmacSecretEncrypted: encrypt(WEBHOOK_SECRET),
+      isActive: true,
+      requestCount: 5,
+      triggerId: null,
+    });
+
+    const firstRes = await app.request(`/api/webhooks/${TEST_WEBHOOK_REG_ID}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Signature': sig,
+        'X-Timestamp': timestamp,
+        'X-Event-Id': 'evt-replay-001',
+      },
+      body,
+    });
+
+    expect(firstRes.status).toBe(202);
+
+    const replayRes = await app.request(`/api/webhooks/${TEST_WEBHOOK_REG_ID}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Signature': sig,
+        'X-Timestamp': timestamp,
+        'X-Event-Id': 'evt-replay-001',
+      },
+      body,
+    });
+
+    expect(replayRes.status).toBe(200);
+    const replayJson = await replayRes.json();
+    expect(replayJson.status).toBe('already_processed');
+    expect(mockFindFirst).toHaveBeenCalledTimes(1);
   });
 
   it('POST /api/webhooks/:id triggers workflow when trigger is active', async () => {
@@ -601,6 +685,80 @@ describe('Auth routes — login flow', () => {
     expect(json.user.workspaceSlug).toBe('default');
   });
 
+  it('POST /api/auth/login accepts identifier alias for database login', async () => {
+    const bcrypt = await import('bcryptjs');
+    const hash = await bcrypt.hash('my-password', 4);
+
+    mockFindFirst
+      .mockResolvedValueOnce({
+        id: TEST_UUID,
+        email: 'user@test.com',
+        name: 'Test User',
+        role: 'creator_user',
+        passwordHash: hash,
+        workspaceId: TEST_WORKSPACE_ID,
+      })
+      .mockResolvedValueOnce({
+        id: TEST_WORKSPACE_ID,
+        slug: 'default',
+      });
+
+    const res = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '10.10.10.11' },
+      body: JSON.stringify({ identifier: 'user@test.com', password: 'my-password' }),
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.email).toBe('user@test.com');
+  });
+
+  it('POST /api/auth/login accepts non-email LDAP identifiers and auto-provisions the user', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      {
+        id: 'provider-001',
+        providerType: 'ldap',
+        workspaceId: TEST_WORKSPACE_ID,
+        isEnabled: true,
+        priority: 100,
+        config: {
+          url: 'ldap://ldap.example.com:389',
+          bindDn: 'cn=admin,dc=example,dc=com',
+          searchBase: 'ou=users,dc=example,dc=com',
+          searchFilter: '(uid={{username}})',
+        },
+      },
+    ]);
+    mockAuthenticateLdap.mockResolvedValueOnce({
+      email: 'albert@example.com',
+      name: 'Albert Einstein',
+      dn: 'cn=Albert Einstein,ou=users,dc=example,dc=com',
+    });
+    mockFindFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: TEST_WORKSPACE_ID, slug: 'default' });
+    mockInsertReturning.mockResolvedValueOnce([{
+      id: 'ldap-user-001',
+      email: 'albert@example.com',
+      name: 'Albert Einstein',
+      role: 'creator_user',
+      authProvider: 'ldap',
+      workspaceId: TEST_WORKSPACE_ID,
+    }]);
+
+    const res = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '10.10.10.12' },
+      body: JSON.stringify({ identifier: 'Albert Einstein', password: 'password', provider: 'ldap' }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(mockAuthenticateLdap).toHaveBeenCalledWith(expect.any(Object), 'Albert Einstein', 'password');
+    expect(json.user.authProvider).toBe('ldap');
+    expect(json.user.email).toBe('albert@example.com');
+  });
+
   it('POST /api/auth/register rejects duplicate email', async () => {
     // 1st findFirst: check existing email — returns existing user
     mockFindFirst.mockResolvedValueOnce({ id: 'existing-user', email: 'dup@test.com' });
@@ -694,7 +852,7 @@ describe('Auth routes — change password', () => {
 
     const res = await app.request('/api/auth/change-password', {
       method: 'PUT',
-      headers: authHeaders(token),
+      headers: authHeaders(token, { 'X-Forwarded-For': '10.10.10.13' }),
       body: JSON.stringify({
         currentPassword: 'wrong-password',
         newPassword: 'NewValidPass123!',
@@ -716,7 +874,7 @@ describe('Auth routes — change password', () => {
 
     const res = await app.request('/api/auth/change-password', {
       method: 'PUT',
-      headers: authHeaders(token),
+      headers: authHeaders(token, { 'X-Forwarded-For': '10.10.10.14' }),
       body: JSON.stringify({
         currentPassword: 'CurrentPass123!',
         newPassword: 'BrandNewPass456!',

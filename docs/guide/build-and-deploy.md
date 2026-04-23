@@ -72,6 +72,12 @@ npm test
 npm run test:coverage
 ```
 
+If you plan to run Playwright end-to-end tests after a Docker Desktop reset, cache cleanup, or a new machine setup, reinstall the browser binaries first:
+
+```bash
+npx playwright install chromium
+```
+
 ## 4. Build Docker Images
 
 ```bash
@@ -217,6 +223,58 @@ BUILD_TAG=1.17.1 ./build.sh
 
 # 5. Verify
 curl http://localhost:4002/health
+```
+
+## Release Versioning & Git Tags
+
+Treat the application release version as a single semantic version shared across:
+
+- the root workspace `package.json`
+- each workspace package version
+- `helm/oao-platform/Chart.yaml`
+- `helm/oao-platform/values.yaml` image tags
+
+To bump all of those together locally, use:
+
+```bash
+node scripts/release-version.mjs --bump patch
+```
+
+Or set an explicit version:
+
+```bash
+node scripts/release-version.mjs --set 1.30.11
+```
+
+Do **not** auto-tag every merge to `main`. A semantic version bump is a release decision, not a merge event. Use the manual GitHub Actions workflow **Create Release Tag** after the intended release commit is already on `main`.
+
+That workflow:
+
+1. bumps the tracked version files
+2. commits the release metadata back to `main`
+3. creates an annotated Git tag as `vX.Y.Z`
+
+The application images and local Kubernetes deployment still remain **local-only** using `build.sh`, `deploy.sh`, and `publish.sh`.
+
+## Versioned Docs on GitHub Pages
+
+The GitHub Pages workflow rebuilds the docs site from scratch on each `main` push or release tag event:
+
+- `latest` is built from the current `main` branch and published at the site root
+- the most recent tagged releases are rebuilt by checking out the Git tags in temporary worktrees
+- only a bounded number of past versions are kept in the site navigation and output (currently `5` total entries including `latest`)
+
+Published version snapshots live under paths such as:
+
+```text
+/open-agent-orchestra/1.30.10/
+/open-agent-orchestra/1.30.9/
+```
+
+You can reproduce the Pages build locally with:
+
+```bash
+npm run docs:site
 ```
 
 ## Publishing to Docker Hub

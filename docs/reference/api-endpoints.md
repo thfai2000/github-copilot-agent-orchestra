@@ -131,9 +131,12 @@ curl -X POST http://localhost:4002/api/auth/login \
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `email` | string (email) | Yes | |
+| `identifier` | string | Preferred | Email for database login, or username/email for LDAP login depending on provider config |
+| `email` | string (email) | Legacy alias | Backward-compatible alias for `identifier` |
 | `password` | string | Yes | |
 | `provider` | `"database"` \| `"ldap"` | No | Auto-detected if omitted |
+
+For LDAP logins, `identifier` does **not** need to be an email address. It should match the configured LDAP search filter placeholder (for example `uid`, `cn`, or `sAMAccountName`).
 
 **Response** `200`
 
@@ -555,6 +558,8 @@ curl -X POST http://localhost:4002/api/workflows \
 | `scope` | `"user"` \| `"workspace"` | `"user"` | Visibility scope |
 | `steps` | StepSchema[] | — | 1–20 ordered steps (required) |
 | `triggers` | TriggerSchema[] | — | Optional triggers |
+
+When an optional workflow default is unset, omit that field from the request body. Do not send `null` for values such as `defaultModel`, `defaultReasoningEffort`, or `defaultAgentId` on create requests.
 
 **Step Schema**
 
