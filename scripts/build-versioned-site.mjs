@@ -60,14 +60,8 @@ function getCurrentVersion() {
   return String(packageJson.version ?? '').trim();
 }
 
-function listTaggedVersions() {
-  // If DOCS_TAGS is set (hardcoded in the workflow), use that explicit allow-list.
-  // Otherwise, fall back to auto-discovery from local git tags (useful for local builds).
-  const explicit = (process.env.DOCS_TAGS ?? '').split(/[\s,]+/).map((v) => v.trim()).filter(Boolean);
-  const rawTags = explicit.length > 0
-    ? explicit
-    : run('git', ['tag', '--list']).split('\n').map((value) => value.trim()).filter(Boolean);
-
+function listGitTaggedVersions() {
+  const rawTags = run('git', ['tag', '--list']).split('\n').map((value) => value.trim()).filter(Boolean);
   const parsed = rawTags.map(parseSemver).filter(Boolean).sort(compareSemver);
   const uniqueByVersion = new Map();
 
@@ -77,9 +71,46 @@ function listTaggedVersions() {
     }
   }
 
-  // When the list is explicit, skip the versionLimit cap — honour the workflow's list verbatim.
-  if (explicit.length > 0) {
-    return [...uniqueByVersion.values()];
+  return [...uniqueByVersion.values()];
+}
+
+function listTaggedVersions() {
+  const explicit = (process.env.DOCS_TAGS ?? '').split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+  const discovered = listGitTaggedVersions();
+
+  if (explicit.length === 0) {
+    return discovered;
+  }
+
+  const discoveredByVersion = new Map(discovered.map((tag) => [tag.version, tag]));
+  const selected = [];
+  const missing = [];
+
+  for (const rawTag of explicit) {
+    const parsed = parseSemver(rawTag);
+    if (!parsed) {
+      console.warn(`Skipping invalid DOCS_TAGS entry: ${rawTag}`);
+      continue;
+    }
+
+    const discoveredTag = discoveredByVersion.get(parsed.version);
+    if (!discoveredTag) {
+      missing.push(parsed.raw);
+      continue;
+    }
+
+    selected.push(discoveredTag);
+  }
+
+  if (missing.length > 0) {
+    console.warn(`Skipping DOCS_TAGS entries without matching git tags: ${missing.join(', ')}`);
+  }
+
+  const uniqueByVersion = new Map();
+  for (const tag of selected) {
+    if (!uniqueByVersion.has(tag.version)) {
+      uniqueByVersion.set(tag.version, tag);
+    }
   }
 
   return [...uniqueByVersion.values()];

@@ -250,9 +250,9 @@ Do **not** auto-tag every merge to `main`. A semantic version bump is a release 
 
 That workflow:
 
-1. bumps the tracked version files
-2. commits the release metadata back to `main`
-3. creates an annotated Git tag as `vX.Y.Z`
+1. reads the release version already committed in the root `package.json`
+2. validates that `vX.Y.Z` does not already exist
+3. creates and pushes an annotated Git tag as `vX.Y.Z`
 
 The application images and local Kubernetes deployment still remain **local-only** using `build.sh`, `deploy.sh`, and `publish.sh`.
 
@@ -261,8 +261,9 @@ The application images and local Kubernetes deployment still remain **local-only
 The GitHub Pages workflow rebuilds the docs site from scratch on each `main` push or release tag event:
 
 - `latest` is built from the current `main` branch and published at the site root
-- the most recent tagged releases are rebuilt by checking out the Git tags in temporary worktrees
-- only a bounded number of past versions are kept in the site navigation and output (currently `5` total entries including `latest`)
+- release snapshots are rebuilt by checking out the allowed Git tags in temporary worktrees
+- the allow-list is hardcoded in `.github/workflows/deploy-pages.yml` via `DOCS_TAGS`
+- a version only appears in the dropdown after the matching Git tag actually exists, so the site never advertises a broken version URL
 
 Published version snapshots live under paths such as:
 
