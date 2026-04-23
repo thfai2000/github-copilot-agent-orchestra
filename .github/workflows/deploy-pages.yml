@@ -20,7 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      DOCS_VERSION_LIMIT: '5'
+      # ─── Versioned docs ──────────────────────────────────────────────
+      # Hardcoded allow-list of historical tags to build snapshots for.
+      # The current `main` version is always built as "latest" at the
+      # site root; each tag below is also built into /<version>/.
+      # Add new tags here when you want them to appear in the version
+      # dropdown. Remove old ones to drop them from the site.
+      DOCS_TAGS: >-
+        v1.30.11
+      DOCS_VERSION_LIMIT: '20'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

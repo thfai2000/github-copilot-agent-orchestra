@@ -61,7 +61,13 @@ function getCurrentVersion() {
 }
 
 function listTaggedVersions() {
-  const rawTags = run('git', ['tag', '--list']).split('\n').map((value) => value.trim()).filter(Boolean);
+  // If DOCS_TAGS is set (hardcoded in the workflow), use that explicit allow-list.
+  // Otherwise, fall back to auto-discovery from local git tags (useful for local builds).
+  const explicit = (process.env.DOCS_TAGS ?? '').split(/[\s,]+/).map((v) => v.trim()).filter(Boolean);
+  const rawTags = explicit.length > 0
+    ? explicit
+    : run('git', ['tag', '--list']).split('\n').map((value) => value.trim()).filter(Boolean);
+
   const parsed = rawTags.map(parseSemver).filter(Boolean).sort(compareSemver);
   const uniqueByVersion = new Map();
 
@@ -71,15 +77,23 @@ function listTaggedVersions() {
     }
   }
 
+  // When the list is explicit, skip the versionLimit cap — honour the workflow's list verbatim.
+  if (explicit.length > 0) {
+    return [...uniqueByVersion.values()];
+  }
+
   return [...uniqueByVersion.values()];
 }
 
 function buildDocVersions(currentVersion, taggedVersions) {
+  const hasExplicitList = Boolean((process.env.DOCS_TAGS ?? '').trim());
   const includeCurrentTag = taggedVersions.some((entry) => entry.version === currentVersion);
-  const maxTaggedSnapshots = includeCurrentTag ? Math.max(versionLimit - 1, 0) : Math.max(versionLimit - 1, 0);
+  const effectiveLimit = hasExplicitList
+    ? Math.max(taggedVersions.length + 1, 1)
+    : Math.max(versionLimit - 1, 0);
   const retainedTags = taggedVersions
     .filter((entry) => entry.version !== currentVersion)
-    .slice(0, maxTaggedSnapshots);
+    .slice(0, effectiveLimit);
   const displayVersions = [{ version: currentVersion, latest: true }, ...retainedTags.map((entry) => ({ version: entry.version }))];
   const taggedSnapshots = includeCurrentTag
     ? [taggedVersions.find((entry) => entry.version === currentVersion), ...retainedTags]
