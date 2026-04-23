@@ -81,15 +81,15 @@ npx playwright install chromium
 ## 4. Build Docker Images
 
 ```bash
-BUILD_TAG=1.17.1 ./build.sh
+BUILD_TAG=1.30.11 ./build.sh
 ```
 
 This builds two images:
 
 | Image | Description |
 |---|---|
-| `oao-core:1.17.1` | Single backend image for all roles (API, Controller, Agent Worker) |
-| `oao-ui:1.17.1` | OAO-UI (Nuxt 3 dashboard) |
+| `oao-core:1.30.11` | Single backend image for all roles (API, Controller, Agent Worker) |
+| `oao-ui:1.30.11` | OAO-UI (Nuxt 3 dashboard) |
 
 ## 5. Deploy
 
@@ -98,10 +98,10 @@ This builds two images:
 Update image tags in `helm/oao-platform/values.yaml`:
 
 ```yaml
-coreImage: oao-core:1.17.1
+coreImage: oao-core:1.30.11
 
 ui:
-  image: oao-ui:1.17.1
+  image: oao-ui:1.30.11
 
 config:
   PUBLIC_API_BASE_URL: "http://oao.local"
@@ -213,7 +213,7 @@ npm run lint && npm test
 npm run test:coverage
 
 # 2. Bump version and rebuild
-BUILD_TAG=1.17.1 ./build.sh
+BUILD_TAG=1.30.11 ./build.sh
 
 # 3. Update values.yaml with new tag
 # ...edit helm/oao-platform/values.yaml...

@@ -26,13 +26,18 @@ spec:
             - sh
             - -c
             - |
+              DB_HOST="${POSTGRES_CLIENT_SERVICE_HOST:-postgres-client}"
+              if [ -n "${POSTGRES_CLIENT_SERVICE_HOST:-}" ]; then
+                export AGENT_DATABASE_URL="$(printf '%s' "$AGENT_DATABASE_URL" | sed "s/@postgres-client:/@${DB_HOST}:/; s/@postgres:/@${DB_HOST}:/")"
+              fi
               echo "Waiting for PostgreSQL to accept connections..."
               for i in $(seq 1 30); do
                 node -e "
                   const net = require('net');
+                  const host = process.env.DB_HOST || 'postgres-client';
                   const s = new net.Socket();
                   s.setTimeout(3000);
-                  s.connect(5432, 'postgres', () => { s.destroy(); process.exit(0); });
+                  s.connect(5432, host, () => { s.destroy(); process.exit(0); });
                   s.on('error', () => process.exit(1));
                   s.on('timeout', () => { s.destroy(); process.exit(1); });
                 " && break

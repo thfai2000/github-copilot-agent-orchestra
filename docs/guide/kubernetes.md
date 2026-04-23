@@ -20,16 +20,22 @@ Deploy **Open Agent Orchestra (OAO)** to Kubernetes using Helm charts. No source
 
 ## Quick Start
 
-### 1. Add the Helm Repository
+### 1. Choose the Chart Source
+
+Preferred source: the published OCI chart on Docker Hub.
 
 ```bash
-helm repo add oao https://thfai2000.github.io/open-agent-orchestra/charts
-helm repo update
+helm pull oci://registry-1.docker.io/thfai2000/oao-platform --version 1.30.11
 ```
 
-Or, if you have the chart locally:
+Alternative sources:
 
 ```bash
+# GitHub Pages chart index
+helm repo add oao https://thfai2000.github.io/open-agent-orchestra/charts
+helm repo update
+
+# Or work from a local checkout
 git clone https://github.com/thfai2000/open-agent-orchestra.git
 cd open-agent-orchestra
 ```
@@ -47,7 +53,7 @@ ingress:
   className: nginx
   annotations: {}
 
-coreImage: thfai2000/oao-core:1.6.0   # Single image for API, Controller, Agent Worker
+coreImage: thfai2000/oao-core:1.30.11   # Single image for API, Controller, Agent Worker
 
 api:
   replicas: 1
@@ -61,7 +67,7 @@ api:
       cpu: 500m
 
 ui:
-  image: thfai2000/oao-ui:1.6.0
+  image: thfai2000/oao-ui:1.30.11
   replicas: 1
   port: 3002
 
@@ -69,7 +75,6 @@ controller:
   replicas: 1
 
 agentPod:
-  image: thfai2000/oao-core:1.6.0   # Image used for ephemeral agent instances
   resources:
     requests:
       memory: 256Mi
@@ -78,9 +83,13 @@ agentPod:
       memory: 512Mi
       cpu: 500m
 
+agentWorker:
+  enabled: true
+  replicas: 2
+
 postgres:
   image: pgvector/pgvector:pg16
-  storage: 10Gi
+  storage: 5Gi
 
 redis:
   image: redis:7-alpine
@@ -92,7 +101,7 @@ config:
 
 secrets:
   POSTGRES_PASSWORD: "change-me-in-production"
-  AGENT_DATABASE_URL: "postgresql://oao:change-me-in-production@postgres:5432/agent_db"
+  AGENT_DATABASE_URL: "postgresql://oao:change-me-in-production@postgres-client:5432/agent_db"
   REDIS_URL: "redis://redis:6379"
   JWT_SECRET: "your-jwt-secret-change-in-production"
   ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -103,7 +112,13 @@ secrets:
 ### 3. Deploy with Helm
 
 ```bash
-# From Helm repo:
+# Preferred: directly from the published OCI chart
+helm upgrade --install oao-platform oci://registry-1.docker.io/thfai2000/oao-platform \
+  --version 1.30.11 \
+  -f my-values.yaml \
+  --namespace open-agent-orchestra --create-namespace
+
+# From the GitHub Pages chart index:
 helm upgrade --install oao-platform oao/oao-platform \
   -f my-values.yaml \
   --namespace open-agent-orchestra --create-namespace
@@ -183,8 +198,9 @@ graph TB
 ## Updating
 
 ```bash
-# Update image tags in my-values.yaml, then:
-helm upgrade --install oao-platform oao/oao-platform \
+# Update image tags in my-values.yaml, then deploy the published chart:
+helm upgrade --install oao-platform oci://registry-1.docker.io/thfai2000/oao-platform \
+  --version 1.30.11 \
   -f my-values.yaml \
   --namespace open-agent-orchestra
 ```
@@ -213,7 +229,7 @@ For local development with Docker Desktop Kubernetes, use `deploy.sh` which runs
 
 ```bash
 # Build images first
-BUILD_TAG=1.6.0 bash build.sh
+BUILD_TAG=1.30.11 bash build.sh
 
 # Deploy locally
 bash deploy.sh
@@ -225,9 +241,13 @@ bash deploy.sh
 
 ## Helm Chart Repository
 
-The OAO Helm chart is available via our chart repository:
+The OAO Helm chart is published in two ways:
 
 ```bash
+# OCI registry on Docker Hub
+helm pull oci://registry-1.docker.io/thfai2000/oao-platform --version 1.30.11
+
+# GitHub Pages chart index
 helm repo add oao https://thfai2000.github.io/open-agent-orchestra/charts
 helm repo update
 helm search repo oao

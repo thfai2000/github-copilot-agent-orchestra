@@ -119,7 +119,7 @@ secrets:
   # PostgreSQL password
   POSTGRES_PASSWORD: "CHANGE_ME"
   # OAO DB connection
-  AGENT_DATABASE_URL: "postgresql://oao:CHANGE_ME@postgres:5432/agent_db"
+  AGENT_DATABASE_URL: "postgresql://oao:CHANGE_ME@postgres-client:5432/agent_db"
   # Redis connection
   REDIS_URL: "redis://redis:6379"
   # JWT secret for this platform
