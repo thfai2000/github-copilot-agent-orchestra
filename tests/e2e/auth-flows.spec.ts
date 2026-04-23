@@ -71,11 +71,12 @@ test('superadmin can create a user and change that user role', async ({ page }) 
 });
 
 test('superadmin can configure LDAP, test it, and an LDAP user can log in with a non-email identifier', async ({ page }) => {
-  const ldapUrl = ensureClusterLdap();
+  const ldapUrl = await ensureClusterLdap();
   const providerName = uniqueName('ldap-e2e');
 
   await loginViaUi(page, { identifier: ADMIN_EMAIL, password: ADMIN_PASSWORD, providerLabel: 'Email & Password' });
-  await page.goto('/default/admin/auth-providers');
+  await page.locator('aside a[href="/default/admin/auth-providers"]').first().click();
+  await expect(page).toHaveURL(/\/default\/admin\/auth-providers$/);
   await page.waitForLoadState('networkidle');
 
   const addProviderButton = page.getByRole('button', { name: /Add Provider/i });
@@ -123,7 +124,10 @@ test('superadmin can configure LDAP, test it, and an LDAP user can log in with a
 
   await logoutViaUi(page);
   await loginViaUi(page, { identifier: ADMIN_EMAIL, password: ADMIN_PASSWORD, providerLabel: 'Email & Password' });
-  await page.goto('/default/admin/auth-providers');
+  await page.locator('aside a[href="/default/admin/auth-providers"]').first().click();
+  await expect(page).toHaveURL(/\/default\/admin\/auth-providers$/);
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByText(providerName)).toBeVisible({ timeout: 10_000 });
   const deleteRow = page.locator('tr', { hasText: providerName });
   await deleteRow.locator('button').last().click();
   await page.getByRole('button', { name: /^Delete$/ }).click();

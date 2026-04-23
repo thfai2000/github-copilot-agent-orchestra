@@ -81,15 +81,15 @@ npx playwright install chromium
 ## 4. Build Docker Images
 
 ```bash
-BUILD_TAG=1.30.11 ./build.sh
+BUILD_TAG=1.30.13 ./build.sh
 ```
 
 This builds two images:
 
 | Image | Description |
 |---|---|
-| `oao-core:1.30.11` | Single backend image for all roles (API, Controller, Agent Worker) |
-| `oao-ui:1.30.11` | OAO-UI (Nuxt 3 dashboard) |
+| `oao-core:1.30.13` | Single backend image for all roles (API, Controller, Agent Worker) |
+| `oao-ui:1.30.13` | OAO-UI (Nuxt 3 dashboard) |
 
 ## 5. Deploy
 
@@ -98,10 +98,10 @@ This builds two images:
 Update image tags in `helm/oao-platform/values.yaml`:
 
 ```yaml
-coreImage: oao-core:1.30.11
+coreImage: oao-core:1.30.13
 
 ui:
-  image: oao-ui:1.30.11
+  image: oao-ui:1.30.13
 
 config:
   PUBLIC_API_BASE_URL: "http://oao.local"
@@ -113,16 +113,21 @@ Run the deploy script (development convenience):
 ./deploy.sh
 ```
 
+`deploy.sh` now waits for the local Redis, PostgreSQL, API, UI, controller, and agent-worker rollouts to become ready before it recreates the `http://oao.local` bridge.
+
 This will:
 1. Run pre-flight checks (kubectl, helm, cluster connectivity)
 2. Deploy via `helm upgrade --install` to the `open-agent-orchestra` namespace
 3. Auto-push database schema via Helm hook (Drizzle `post-install`/`post-upgrade` Job)
+4. Start a local `oao.local` access bridge for Docker Desktop by port-forwarding the UI/API and running a tiny Docker reverse proxy on port `80`
 
 For local Docker Desktop Kubernetes, the Helm migration hook reuses `coreImage` with `imagePullPolicy: IfNotPresent`, so a locally built `oao-core:<tag>` image can be used directly without a separate manual image import step.
 
 > **Note:** `deploy.sh` is a development convenience wrapper. For production, use `helm upgrade --install` directly — see [Host on Kubernetes](/guide/kubernetes).
 
 After deployment, access the platform via ingress at **http://oao.local** (requires `/etc/hosts` entry and NGINX Ingress Controller). See [Host on Kubernetes](/guide/kubernetes) for setup details.
+
+For Docker Desktop on macOS, `deploy.sh` now manages the local host bridge automatically because the cluster's internal load-balancer IP is not consistently reachable from the macOS host. The bridge keeps `http://oao.local` on port `80` working by forwarding to the live UI and API services, and a background monitor restarts dead UI or API port-forwards if they drop later.
 
 ### Option B: Use Docker Compose
 
@@ -213,7 +218,7 @@ npm run lint && npm test
 npm run test:coverage
 
 # 2. Bump version and rebuild
-BUILD_TAG=1.30.11 ./build.sh
+BUILD_TAG=1.30.13 ./build.sh
 
 # 3. Update values.yaml with new tag
 # ...edit helm/oao-platform/values.yaml...
@@ -243,7 +248,7 @@ node scripts/release-version.mjs --bump patch
 Or set an explicit version:
 
 ```bash
-node scripts/release-version.mjs --set 1.30.11
+node scripts/release-version.mjs --set 1.30.13
 ```
 
 Do **not** auto-tag every merge to `main`. A semantic version bump is a release decision, not a merge event. Use the manual GitHub Actions workflow **Create Release Tag** after the intended release commit is already on `main`.

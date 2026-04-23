@@ -22,3 +22,4 @@ packages/*/*.tsbuildinfo
 docs/.vitepress/cache
 packages/*/coverage/
 .tmp-docs-site/
+test-results

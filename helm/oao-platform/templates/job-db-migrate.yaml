@@ -27,6 +27,7 @@ spec:
             - -c
             - |
               DB_HOST="${POSTGRES_CLIENT_SERVICE_HOST:-postgres-client}"
+              export DB_HOST
               if [ -n "${POSTGRES_CLIENT_SERVICE_HOST:-}" ]; then
                 export AGENT_DATABASE_URL="$(printf '%s' "$AGENT_DATABASE_URL" | sed "s/@postgres-client:/@${DB_HOST}:/; s/@postgres:/@${DB_HOST}:/")"
               fi

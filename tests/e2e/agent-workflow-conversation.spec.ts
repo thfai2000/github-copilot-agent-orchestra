@@ -20,8 +20,10 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
 
   await loginViaUi(page, { identifier: ADMIN_EMAIL, password: ADMIN_PASSWORD, providerLabel: 'Email & Password' });
 
-  await page.goto('/default/agents/new');
-  await page.waitForLoadState('networkidle');
+  await page.locator('aside a[href="/default/agents"]').first().click();
+  await expect(page).toHaveURL(/\/default\/agents$/);
+  await page.getByRole('button', { name: /Create Agent/i }).click();
+  await expect(page).toHaveURL(/\/default\/agents\/new$/);
   await fillField(page, 'Name', agentName);
   await fillField(page, 'Description', 'Playwright database agent');
   await page.getByRole('button', { name: /^Database$/ }).click();
@@ -35,8 +37,9 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
   expect(createdAgentId).toBeTruthy();
 
   await expect(page).toHaveURL(/\/default\/agents$/);
-  await expect(page.getByText(agentName)).toBeVisible();
-  await page.goto(`/default/agents/${createdAgentId}`);
+  const createdAgentLink = page.getByRole('link', { name: agentName, exact: true });
+  await expect(createdAgentLink).toBeVisible();
+  await createdAgentLink.click();
   await expect(page).toHaveURL(new RegExp(`/default/agents/${createdAgentId}$`));
 
   await page.getByRole('button', { name: /^Edit$/ }).click();
@@ -86,8 +89,10 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
     }, { timeout: 60_000 }).not.toBe('pending');
   }
 
-  await page.goto('/default/workflows/new');
-  await page.waitForLoadState('networkidle');
+  await page.locator('aside a[href="/default/workflows"]').first().click();
+  await expect(page).toHaveURL(/\/default\/workflows$/);
+  await page.getByRole('button', { name: /Create Workflow/i }).click();
+  await expect(page).toHaveURL(/\/default\/workflows\/new$/);
   const workflowNameInput = page.getByPlaceholder('My Workflow');
   await workflowNameInput.fill(workflowName);
   await expect(workflowNameInput).toHaveValue(workflowName);
@@ -108,8 +113,9 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
   expect(createdWorkflowId).toBeTruthy();
 
   await expect(page).toHaveURL(/\/default\/workflows$/);
-  await expect(page.getByText(workflowName)).toBeVisible();
-  await page.goto(`/default/workflows/${createdWorkflowId}`);
+  const createdWorkflowLink = page.getByRole('link', { name: workflowName, exact: true });
+  await expect(createdWorkflowLink).toBeVisible();
+  await createdWorkflowLink.click();
   await expect(page).toHaveURL(new RegExp(`/default/workflows/${createdWorkflowId}$`));
 
   await page.getByRole('button', { name: /^Edit$/ }).click();
@@ -126,7 +132,11 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
   await expect(page).toHaveURL(/\/default\/workflows$/);
   await expect(page.getByText(updatedWorkflowName)).toHaveCount(0);
 
-  await page.goto(`/default/agents/${createdAgentId}`);
+  await page.locator('aside a[href="/default/agents"]').first().click();
+  await expect(page).toHaveURL(/\/default\/agents$/);
+  const updatedAgentLink = page.getByRole('link', { name: updatedAgentName, exact: true });
+  await expect(updatedAgentLink).toBeVisible();
+  await updatedAgentLink.click();
   await expect(page).toHaveURL(new RegExp(`/default/agents/${createdAgentId}$`));
   await page.getByRole('button', { name: /^Delete$/ }).click();
   await page.getByRole('alertdialog', { name: /Confirm Delete/i }).getByRole('button', { name: /^Delete$/ }).click();

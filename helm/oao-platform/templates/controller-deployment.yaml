@@ -20,7 +20,23 @@ spec:
         - name: controller
           image: {{ .Values.coreImage }}
           imagePullPolicy: IfNotPresent
-          command: ["node", "--import", "tsx", "packages/oao-api/src/workers/controller.ts"]
+          command:
+            - sh
+            - -c
+            - |
+              DB_HOST="${POSTGRES_CLIENT_SERVICE_HOST:-postgres-client}"
+              REDIS_HOST="${REDIS_SERVICE_HOST:-redis}"
+              API_HOST="${OAO_API_SERVICE_HOST:-oao-api}"
+              if [ -n "${POSTGRES_CLIENT_SERVICE_HOST:-}" ]; then
+                export AGENT_DATABASE_URL="$(printf '%s' "$AGENT_DATABASE_URL" | sed "s/@postgres-client:/@${DB_HOST}:/; s/@postgres:/@${DB_HOST}:/")"
+              fi
+              if [ -n "${REDIS_SERVICE_HOST:-}" ]; then
+                export REDIS_URL="$(printf '%s' "$REDIS_URL" | sed "s#redis://redis:#redis://${REDIS_HOST}:#")"
+              fi
+              if [ -n "${OAO_API_SERVICE_HOST:-}" ]; then
+                export OAO_PLATFORM_API_URL="$(printf '%s' "$OAO_PLATFORM_API_URL" | sed "s#://oao-api:#://${API_HOST}:#")"
+              fi
+              exec node --import tsx packages/oao-api/src/workers/controller.ts
           envFrom:
             - configMapRef:
                 name: oao-platform-config

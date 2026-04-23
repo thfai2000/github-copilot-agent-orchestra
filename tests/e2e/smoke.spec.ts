@@ -8,7 +8,13 @@ async function baseUrlReachable(url: string): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(url, { signal: controller.signal });
+    const target = url.includes('oao.local')
+      ? 'http://127.0.0.1/api/auth/providers?workspace=default'
+      : url;
+    const res = await fetch(target, {
+      signal: controller.signal,
+      headers: url.includes('oao.local') ? { Host: 'oao.local' } : undefined,
+    });
     clearTimeout(timeout);
     return res.ok;
   } catch {
@@ -35,5 +41,13 @@ test.describe('OAO UI — smoke', () => {
   test('renders a <html> element when loaded in the browser', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('html')).toBeVisible();
+  });
+
+  test('login dependencies are reachable through the configured base URL', async ({ request }) => {
+    const res = await request.get('/api/auth/providers?workspace=default');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.providers)).toBe(true);
+    expect(body.providers.length).toBeGreaterThan(0);
   });
 });

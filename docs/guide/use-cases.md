@@ -256,7 +256,7 @@ The business scenarios above become release criteria only when they are validate
 | `E2E-04` | Workflow authoring with trigger persistence | Workflow author | Agent exists and workflow create permission is granted | Workflow is created with webhook or schedule triggers, the trigger summary matches the saved configuration, and reopening the detail page shows the persisted trigger state |
 | `E2E-05` | Manual Run with required inputs | Workflow author or admin | Workflow has an active webhook trigger with declared parameters | Missing required inputs return `400` with the missing parameter names, while a valid payload is accepted and routed through the same workflow event pipeline as a webhook |
 | `E2E-06` | Admin user and auth-provider operations | Super admin or workspace admin | Admin pages are reachable | Admin can create users, change roles, configure LDAP, test connectivity, and authenticate through the configured provider |
-| `E2E-07` | Workflow cleanup and reversibility | Workflow author | Workflow and triggers already exist | Operator can deactivate or delete the workflow without leaving orphaned triggers or broken detail views |
+| `E2E-07` | Workflow cleanup and reversibility | Workflow author | Workflow and triggers already exist | Operator can deactivate or delete the workflow without leaving orphaned triggers, stale runtime instance pointers, or broken detail views |
 
 ### Detailed Operator Notes
 

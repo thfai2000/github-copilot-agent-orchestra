@@ -1,7 +1,7 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
-import { eq, desc, and, or, sql, arrayContains } from 'drizzle-orm';
+import { eq, desc, and, or, sql, arrayContains, inArray } from 'drizzle-orm';
 import { db } from '../database/index.js';
-import { workflows, workflowSteps, triggers, workflowExecutions, users, agents } from '../database/schema.js';
+import { workflows, workflowSteps, triggers, workflowExecutions, users, agents, stepExecutions, agentInstances } from '../database/schema.js';
 import { authMiddleware, uuidSchema } from '@oao/shared';
 import {
   platformCreateWorkflowBodySchema,
@@ -472,7 +472,38 @@ workflowsRouter.delete('/:id', async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  await db.delete(workflows).where(eq(workflows.id, id));
+  const workflowTriggers = await db.query.triggers.findMany({
+    where: eq(triggers.workflowId, id),
+  });
+
+  for (const workflowTrigger of workflowTriggers) {
+    await deleteWorkflowTrigger({ workflow: existing, trigger: workflowTrigger });
+  }
+
+  await db.transaction(async (tx) => {
+    const workflowExecutionRows = await tx.query.workflowExecutions.findMany({
+      columns: { id: true },
+      where: eq(workflowExecutions.workflowId, id),
+    });
+
+    const workflowExecutionIds = workflowExecutionRows.map((row) => row.id);
+    if (workflowExecutionIds.length > 0) {
+      const executionStepRows = await tx.query.stepExecutions.findMany({
+        columns: { id: true },
+        where: inArray(stepExecutions.workflowExecutionId, workflowExecutionIds),
+      });
+
+      const stepExecutionIds = executionStepRows.map((row) => row.id);
+      if (stepExecutionIds.length > 0) {
+        await tx
+          .update(agentInstances)
+          .set({ currentStepExecutionId: null, updatedAt: new Date() })
+          .where(inArray(agentInstances.currentStepExecutionId, stepExecutionIds));
+      }
+    }
+
+    await tx.delete(workflows).where(eq(workflows.id, id));
+  });
 
   emitEvent({
     eventScope: existing.scope === 'workspace' ? 'workspace' : 'user',

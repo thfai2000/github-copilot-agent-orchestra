@@ -25,7 +25,7 @@ Deploy **Open Agent Orchestra (OAO)** to Kubernetes using Helm charts. No source
 Preferred source: the published OCI chart on Docker Hub.
 
 ```bash
-helm pull oci://registry-1.docker.io/thfai2000/oao-platform --version 1.30.11
+helm pull oci://registry-1.docker.io/thfai2000/oao-platform --version 1.30.13
 ```
 
 Alternative sources:
@@ -53,7 +53,7 @@ ingress:
   className: nginx
   annotations: {}
 
-coreImage: thfai2000/oao-core:1.30.11   # Single image for API, Controller, Agent Worker
+coreImage: thfai2000/oao-core:1.30.13   # Single image for API, Controller, Agent Worker
 
 api:
   replicas: 1
@@ -67,7 +67,7 @@ api:
       cpu: 500m
 
 ui:
-  image: thfai2000/oao-ui:1.30.11
+  image: thfai2000/oao-ui:1.30.13
   replicas: 1
   port: 3002
 
@@ -114,7 +114,7 @@ secrets:
 ```bash
 # Preferred: directly from the published OCI chart
 helm upgrade --install oao-platform oci://registry-1.docker.io/thfai2000/oao-platform \
-  --version 1.30.11 \
+  --version 1.30.13 \
   -f my-values.yaml \
   --namespace open-agent-orchestra --create-namespace
 
@@ -141,6 +141,7 @@ kubectl -n open-agent-orchestra rollout status deployment/oao-ui --timeout=120s
 > **Note:** Database schema and seed data are applied automatically via a Helm `post-install`/`post-upgrade` hook Job.
 > The hook waits for PostgreSQL to be ready, then runs `drizzle-kit push` followed by the seed script. No manual step needed.
 > When using locally built images on Docker Desktop Kubernetes, the hook reuses `coreImage` with `imagePullPolicy: IfNotPresent`, so you do not need to preload the image manually.
+> In local clusters where service-name DNS is unstable, the hook also falls back to the Kubernetes service-host environment variables for both the readiness probe and the connection string before running schema push.
 > On first deploy, a **superadmin** account is created with a random password. Check the job logs:
 > ```bash
 > kubectl -n open-agent-orchestra logs job/oao-platform-db-migrate | grep -A 5 "SUPERADMIN"
@@ -200,7 +201,7 @@ graph TB
 ```bash
 # Update image tags in my-values.yaml, then deploy the published chart:
 helm upgrade --install oao-platform oci://registry-1.docker.io/thfai2000/oao-platform \
-  --version 1.30.11 \
+  --version 1.30.13 \
   -f my-values.yaml \
   --namespace open-agent-orchestra
 ```
@@ -229,7 +230,7 @@ For local development with Docker Desktop Kubernetes, use `deploy.sh` which runs
 
 ```bash
 # Build images first
-BUILD_TAG=1.30.11 bash build.sh
+BUILD_TAG=1.30.13 bash build.sh
 
 # Deploy locally
 bash deploy.sh
@@ -239,13 +240,17 @@ bash deploy.sh
 `deploy.sh` is a development convenience script. For production deployments, use `helm upgrade --install` directly as shown above.
 :::
 
+When using Docker Desktop on macOS for local development, `deploy.sh` waits for the core workloads to finish rolling out and then starts a small local access bridge so `http://oao.local` stays usable from the host even when the cluster's internal load-balancer IP is not directly routable from macOS.
+
+The API, controller, and agent-worker pods also rewrite their Postgres, Redis, and internal API URLs from Kubernetes-injected service host env vars at startup, so local service-to-service traffic can survive transient in-cluster DNS failures.
+
 ## Helm Chart Repository
 
 The OAO Helm chart is published in two ways:
 
 ```bash
 # OCI registry on Docker Hub
-helm pull oci://registry-1.docker.io/thfai2000/oao-platform --version 1.30.11
+helm pull oci://registry-1.docker.io/thfai2000/oao-platform --version 1.30.13
 
 # GitHub Pages chart index
 helm repo add oao https://thfai2000.github.io/open-agent-orchestra/charts

@@ -20,8 +20,10 @@ test('manual run rejects missing required webhook inputs and accepts a valid pay
   const authToken = (await page.context().cookies()).find((cookie) => cookie.name === 'token')?.value;
   expect(authToken).toBeTruthy();
 
-  await page.goto('/default/agents/new');
-  await page.waitForLoadState('networkidle');
+  await page.locator('aside a[href="/default/agents"]').first().click();
+  await expect(page).toHaveURL(/\/default\/agents$/);
+  await page.getByRole('button', { name: /Create Agent/i }).click();
+  await expect(page).toHaveURL(/\/default\/agents\/new$/);
   await fillField(page, 'Name', agentName);
   await fillField(page, 'Description', 'Playwright agent for manual run validation');
   await page.getByRole('button', { name: /^Database$/ }).click();
@@ -87,7 +89,11 @@ test('manual run rejects missing required webhook inputs and accepts a valid pay
   const createdWorkflowId = createWorkflowResult.body?.workflow?.id as string | undefined;
   expect(createdWorkflowId).toBeTruthy();
 
-  await page.goto(`/default/workflows/${createdWorkflowId}`);
+  await page.locator('aside a[href="/default/workflows"]').first().click();
+  await expect(page).toHaveURL(/\/default\/workflows$/);
+  const workflowDetailLink = page.getByRole('link', { name: workflowName, exact: true });
+  await expect(workflowDetailLink).toBeVisible();
+  await workflowDetailLink.click();
   await expect(page).toHaveURL(new RegExp(`/default/workflows/${createdWorkflowId}$`));
 
   await expect(page.getByRole('button', { name: /Manual Run/i })).toBeVisible();

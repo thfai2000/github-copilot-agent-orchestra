@@ -97,6 +97,12 @@ export function buildDefaultPlatformMcpServerValues(agentId: string): typeof mcp
   };
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function hasPersistedAgentId(agentId: string) {
+  return uuidPattern.test(agentId);
+}
+
 export async function ensureDefaultPlatformMcpServerConfig(agentId: string): Promise<void> {
   const existing = await db.query.mcpServerConfigs.findFirst({
     where: and(
@@ -232,9 +238,11 @@ export async function listConfiguredMcpToolCatalog(params: {
 
   try {
     const groups: McpToolCatalogGroup[] = [];
-    const storedConfigs = await db.query.mcpServerConfigs.findMany({
-      where: eq(mcpServerConfigs.agentId, agent.id),
-    });
+    const storedConfigs = hasPersistedAgentId(agent.id)
+      ? await db.query.mcpServerConfigs.findMany({
+        where: eq(mcpServerConfigs.agentId, agent.id),
+      })
+      : [];
 
     const configs = withDefaultPlatformConfig(agent.id, storedConfigs).filter((config) => config.isEnabled);
 
@@ -345,9 +353,11 @@ export async function loadConfiguredMcpTools(params: {
 }) {
   const { agent, credentials, templateContext, authContext, enabledToolNames, mcpCleanups, logContext } = params;
 
-  const storedConfigs = await db.query.mcpServerConfigs.findMany({
-    where: eq(mcpServerConfigs.agentId, agent.id),
-  });
+  const storedConfigs = hasPersistedAgentId(agent.id)
+    ? await db.query.mcpServerConfigs.findMany({
+      where: eq(mcpServerConfigs.agentId, agent.id),
+    })
+    : [];
 
   const configs = withDefaultPlatformConfig(agent.id, storedConfigs).filter((config) => config.isEnabled);
   const tools = [];

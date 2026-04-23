@@ -27,6 +27,11 @@ if ! kubectl cluster-info &>/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v docker &>/dev/null; then
+  echo "Error: docker not found. Install Docker Desktop first." >&2
+  exit 1
+fi
+
 if [ ! -f "${HELM_DIR}/oao-platform/values.yaml" ]; then
   echo "Error: helm/oao-platform/values.yaml not found." >&2
   echo "" >&2
@@ -46,3 +51,27 @@ echo ""
 helm upgrade --install oao-platform "${HELM_DIR}/oao-platform" \
   -f "${HELM_DIR}/oao-platform/values.yaml" \
   --namespace open-agent-orchestra --create-namespace
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Waiting for core workloads to become ready"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+kubectl -n open-agent-orchestra rollout status deployment/redis --timeout=120s
+kubectl -n open-agent-orchestra rollout status statefulset/postgres --timeout=180s
+kubectl -n open-agent-orchestra rollout status deployment/oao-api --timeout=180s
+kubectl -n open-agent-orchestra rollout status deployment/oao-ui --timeout=180s
+kubectl -n open-agent-orchestra rollout status deployment/oao-controller --timeout=180s
+
+if kubectl -n open-agent-orchestra get deployment/oao-agent-worker >/dev/null 2>&1; then
+  kubectl -n open-agent-orchestra rollout status deployment/oao-agent-worker --timeout=180s
+fi
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Wiring local access bridge for http://oao.local"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+bash "${SCRIPT_DIR}/scripts/ensure-local-oao-access.sh"

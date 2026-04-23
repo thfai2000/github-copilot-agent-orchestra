@@ -17,7 +17,7 @@ export default defineConfig({
   globalSetup: './tests/e2e/global-setup.ts',
   globalTeardown: './tests/e2e/global-teardown.ts',
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3002',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://oao.local',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -25,7 +25,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          args: ['--host-resolver-rules=MAP oao.local 127.0.0.1'],
+        },
+      },
     },
   ],
 });

@@ -34,7 +34,7 @@ open-agent-orchestra/
 └── migrations/           # SQL migration scripts
 ```
 
-The cluster-backed Playwright helpers provision an in-cluster LDAP fixture for auth-provider flows. The current fixture account is `Test User` with password `secret`.
+The cluster-backed Playwright helpers provision an in-cluster LDAP fixture for auth-provider flows. The current fixture account is `Test User` with password `secret`. The helper now waits until the OAO-API pod can open a TCP connection to the LDAP fixture before the auth-provider tests continue, which avoids startup races on local Kubernetes. When Playwright targets `http://oao.local`, global setup reuses `scripts/ensure-local-oao-access.sh` instead of creating a separate bridge path, and global teardown leaves that shared local bridge running. The shared bridge script now also keeps a background monitor alive so dropped UI or API port-forwards are recreated during longer headed runs.
 
 ## Packages
 

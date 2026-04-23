@@ -30,38 +30,66 @@ export async function fillField(page: Page, label: string | RegExp, value: strin
 
 export async function selectOption(page: Page, label: string | RegExp, option: string, root: FieldRoot = page) {
   const container = fieldContainer(root, label);
-  const combobox = container.locator('[role="combobox"], .p-select').first();
-  const currentValue = ((await combobox.textContent()) || '').trim();
+  const combobox = container.getByRole('combobox').first();
+  const selectRoot = container.locator('.p-select, .p-dropdown, [data-pc-name="select"]').first();
+  const dropdownTrigger = container.locator('.p-select-dropdown, .p-dropdown-trigger, [data-pc-section="dropdown"]').first();
+  const trigger = await selectRoot.count() ? selectRoot : combobox;
+  const valueTarget = await combobox.count() ? combobox : trigger;
+  const currentValue = ((await valueTarget.textContent()) || '').trim();
   if (currentValue === option) {
     return;
   }
 
   const optionPattern = new RegExp(`^${escapeRegex(option)}$`);
-  const roleOption = page.getByRole('option', { name: option, exact: true }).first();
-  const popupOption = page.locator('[role="listbox"] [role="option"], [data-pc-section="option"]').filter({ hasText: optionPattern }).first();
+  const optionLocators = [
+    page.locator('[data-pc-section="option"]').filter({ hasText: optionPattern }).first(),
+    page.locator('[data-pc-section="item"]').filter({ hasText: optionPattern }).first(),
+    page.locator('[role="listbox"] li, [role="listbox"] [data-pc-section="optionlabel"]').filter({ hasText: optionPattern }).first(),
+    page.getByRole('option', { name: option, exact: true }).first(),
+  ];
 
   const isOptionVisible = async () => {
-    if (await roleOption.isVisible({ timeout: 1_500 }).catch(() => false)) {
-      return true;
+    for (const locator of optionLocators) {
+      if (await locator.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        return true;
+      }
     }
-    return await popupOption.isVisible({ timeout: 1_500 }).catch(() => false);
+    return false;
   };
 
-  await combobox.click();
+  await trigger.click({ force: true });
+  await page.waitForTimeout(300);
   if (!await isOptionVisible()) {
-    await combobox.press('ArrowDown').catch(() => {});
+    if (await dropdownTrigger.count()) {
+      await dropdownTrigger.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(300);
+    }
   }
   if (!await isOptionVisible()) {
-    await combobox.click();
+    await valueTarget.focus().catch(() => {});
+    await page.keyboard.press('ArrowDown').catch(() => {});
+    await page.waitForTimeout(300);
+  }
+  if (!await isOptionVisible()) {
+    await valueTarget.focus().catch(() => {});
+    await page.keyboard.press('Enter').catch(() => {});
+    await page.waitForTimeout(300);
+  }
+  if (!await isOptionVisible()) {
+    // PrimeVue v4: try clicking the visible overlay trigger icon or label span
+    const labelSpan = container.locator('.p-select-label').first();
+    if (await labelSpan.count()) await labelSpan.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(400);
   }
 
-  if (await roleOption.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await roleOption.click();
-    return;
+  for (const locator of optionLocators) {
+    if (await locator.isVisible({ timeout: 8_000 }).catch(() => false)) {
+      await locator.click();
+      return;
+    }
   }
 
-  await expect(popupOption).toBeVisible({ timeout: 5_000 });
-  await popupOption.click();
+  await expect(optionLocators[0]).toBeVisible({ timeout: 8_000 });
 }
 
 export async function loginViaUi(page: Page, params: {
