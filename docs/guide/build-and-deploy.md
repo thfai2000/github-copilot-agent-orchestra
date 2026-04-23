@@ -254,6 +254,8 @@ That workflow:
 2. validates that `vX.Y.Z` does not already exist
 3. creates and pushes an annotated Git tag as `vX.Y.Z`
 
+Because GitHub's default `GITHUB_TOKEN` does not trigger downstream workflows from a workflow-created tag push, the repository must define an Actions secret named `RELEASE_TOKEN` with a personal access token that can push tags and trigger the Pages workflow.
+
 The application images and local Kubernetes deployment still remain **local-only** using `build.sh`, `deploy.sh`, and `publish.sh`.
 
 ## Versioned Docs on GitHub Pages

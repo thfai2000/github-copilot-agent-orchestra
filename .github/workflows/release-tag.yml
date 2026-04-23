@@ -11,13 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      RELEASE_TOKEN: ${{ secrets['RELEASE_TOKEN'] }}
     steps:
+      - name: Ensure release token is configured
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "Missing repository secret RELEASE_TOKEN. Use a personal access token with permission to push tags and trigger downstream workflows." >&2
+            exit 1
+          fi
+
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
           ref: main
+          token: ${{ secrets['RELEASE_TOKEN'] }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
