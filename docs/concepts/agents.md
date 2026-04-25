@@ -124,6 +124,7 @@ Agents keep immutable version history.
 - The latest editable page lives at `/{workspace}/agents/:id`
 - Historical snapshots live at `/{workspace}/agents/:id/v/:version`
 - Historical pages are read-only and expose the exact files and agent-scoped variables that belonged to that version
+- Direct navigation to a historical URL opens that dedicated read-only snapshot view rather than the latest editable agent page
 
 Agent file changes and agent-scoped variable changes both participate in agent version history. Creating, updating, or deleting an agent file or agent variable increments the agent version and stores a historical snapshot before the change is applied.
 

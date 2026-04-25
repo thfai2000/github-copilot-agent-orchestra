@@ -19,10 +19,10 @@ api:
   port: 4002
   resources:
     requests:
-      memory: 256Mi
+      memory: 512Mi
       cpu: 200m
     limits:
-      memory: 512Mi
+      memory: 1Gi
       cpu: 500m
   hpa:
     enabled: true
@@ -128,3 +128,8 @@ secrets:
   ENCRYPTION_KEY: ""
   # GitHub token for Copilot SDK
   GITHUB_TOKEN: ""
+  # Optional deterministic superadmin login. Leave password empty to generate a random first-deploy password.
+  SUPERADMIN_EMAIL: "admin@oao.local"
+  SUPERADMIN_PASSWORD: ""
+  # Set to "true" only when you intentionally want a deploy to reset an existing superadmin password.
+  SUPERADMIN_FORCE_PASSWORD_RESET: "false"

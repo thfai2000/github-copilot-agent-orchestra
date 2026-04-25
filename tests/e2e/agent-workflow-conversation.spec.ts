@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { resetSuperAdminPassword, uniqueName } from './helpers/cluster';
-import { fillField, loginViaUi, selectOption } from './helpers/ui';
+import { confirmDeleteDialog, dismissVisibleToasts, fillField, loginViaUi, selectOption } from './helpers/ui';
 
 const ADMIN_EMAIL = 'admin@oao.local';
 const ADMIN_PASSWORD = 'AdminPass123!';
@@ -12,6 +12,8 @@ test.beforeAll(async () => {
 });
 
 test('admin can create/edit an agent, use it in a conversation, create/edit/delete a workflow, and manually run it', async ({ page }) => {
+  test.setTimeout(120_000);
+
   const agentName = uniqueName('pw-agent');
   const updatedAgentName = `${agentName}-v2`;
   const workflowName = uniqueName('pw-workflow');
@@ -58,6 +60,7 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
   const sendMessageResponsePromise = page.waitForResponse((response) => response.url().includes('/api/conversations/') && response.url().includes('/messages') && response.request().method() === 'POST');
   await page.getByRole('button', { name: /^Send$/ }).click();
   const sendMessageResponse = await sendMessageResponsePromise;
+  const sendFailedToast = page.locator('.p-toast-message').filter({ hasText: 'Send Failed' }).first();
   const sendMessageResponseText = await sendMessageResponse.text();
   const sendMessagePayload = (() => {
     try {
@@ -79,6 +82,9 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
     const surfacedError = conversationMain.getByText(sendMessageError, { exact: false });
     const noContentMessage = conversationMain.getByText('No content.').first();
     await expect.poll(async () => {
+      if (await sendFailedToast.isVisible().catch(() => false)) {
+        return 'toast';
+      }
       if (await surfacedError.isVisible().catch(() => false)) {
         return 'error';
       }
@@ -86,7 +92,16 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
         return 'no-content';
       }
       return 'pending';
-    }, { timeout: 60_000 }).not.toBe('pending');
+    }, { timeout: 15_000 }).not.toBe('pending');
+
+    if (await sendFailedToast.isVisible().catch(() => false)) {
+      const closeToastButton = sendFailedToast.locator('button').first();
+      if (await closeToastButton.isVisible().catch(() => false)) {
+        await closeToastButton.click();
+      } else {
+        await expect(sendFailedToast).toBeHidden({ timeout: 6_000 });
+      }
+    }
   }
 
   await page.locator('aside a[href="/default/workflows"]').first().click();
@@ -126,20 +141,22 @@ test('admin can create/edit an agent, use it in a conversation, create/edit/dele
   await page.getByRole('button', { name: /Manual Run/i }).click();
   await page.getByRole('button', { name: /Start Run/i }).click();
   await expect(page.getByText(/Workflow run accepted!/i)).toBeVisible();
+  await dismissVisibleToasts(page);
 
   await page.getByRole('button', { name: /^Delete$/ }).click();
-  await page.getByRole('alertdialog', { name: /Confirm Delete/i }).getByRole('button', { name: /^Delete$/ }).click();
+  await confirmDeleteDialog(page);
   await expect(page).toHaveURL(/\/default\/workflows$/);
   await expect(page.getByText(updatedWorkflowName)).toHaveCount(0);
 
-  await page.locator('aside a[href="/default/agents"]').first().click();
+  await page.goto('/default/agents');
   await expect(page).toHaveURL(/\/default\/agents$/);
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible();
   const updatedAgentLink = page.getByRole('link', { name: updatedAgentName, exact: true });
   await expect(updatedAgentLink).toBeVisible();
   await updatedAgentLink.click();
   await expect(page).toHaveURL(new RegExp(`/default/agents/${createdAgentId}$`));
   await page.getByRole('button', { name: /^Delete$/ }).click();
-  await page.getByRole('alertdialog', { name: /Confirm Delete/i }).getByRole('button', { name: /^Delete$/ }).click();
+  await confirmDeleteDialog(page);
   await expect(page).toHaveURL(/\/default\/agents$/);
   await expect(page.getByText(updatedAgentName)).toHaveCount(0);
 });

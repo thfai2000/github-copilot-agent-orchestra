@@ -1,7 +1,8 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 import { createLogger } from '@oao/shared';
 import { db } from '../database/index.js';
-import { triggers } from '../database/schema.js';
+import { triggers, webhookRegistrations, workflowExecutions, workflowSteps } from '../database/schema.js';
 import {
   type CreatableTriggerType,
   getWebhookPathFromConfiguration,
@@ -48,6 +49,75 @@ export async function ensureWebhookPathIsUnique(path: string, excludeTriggerId?:
   }
 }
 
+async function resolveWebhookRegistrationAgentId(workflow: WorkflowRecord) {
+  if (workflow.defaultAgentId) {
+    return workflow.defaultAgentId;
+  }
+
+  const stepWithAgent = await db.query.workflowSteps.findFirst({
+    where: and(
+      eq(workflowSteps.workflowId, workflow.id),
+      sql`${workflowSteps.agentId} is not null`,
+    ),
+    orderBy: asc(workflowSteps.stepOrder),
+  });
+
+  if (stepWithAgent?.agentId) {
+    return stepWithAgent.agentId;
+  }
+
+  throw new TriggerServiceError(
+    'Webhook triggers require a default agent or at least one step-specific agent',
+    400,
+  );
+}
+
+async function syncWebhookRegistration(params: {
+  workflow: WorkflowRecord;
+  trigger: TriggerRecord;
+  configuration: Record<string, unknown>;
+  isActive: boolean;
+}) {
+  const endpointPath = getWebhookPathFromConfiguration('webhook', params.configuration);
+  if (!endpointPath) {
+    throw new TriggerServiceError('Webhook triggers require a configured path', 400);
+  }
+
+  const agentId = await resolveWebhookRegistrationAgentId(params.workflow);
+  const existingRegistration = await db.query.webhookRegistrations.findFirst({
+    where: eq(webhookRegistrations.triggerId, params.trigger.id),
+  });
+
+  if (existingRegistration) {
+    await db
+      .update(webhookRegistrations)
+      .set({
+        agentId,
+        endpointPath,
+        isActive: params.isActive,
+      })
+      .where(eq(webhookRegistrations.id, existingRegistration.id));
+    return;
+  }
+
+  const { encrypt } = await import('@oao/shared');
+  const hmacSecretEncrypted = encrypt(crypto.randomUUID() + crypto.randomUUID());
+
+  await db
+    .insert(webhookRegistrations)
+    .values({
+      agentId,
+      triggerId: params.trigger.id,
+      endpointPath,
+      hmacSecretEncrypted,
+      isActive: params.isActive,
+    });
+}
+
+async function deleteWebhookRegistrationsForTrigger(triggerId: string) {
+  await db.delete(webhookRegistrations).where(eq(webhookRegistrations.triggerId, triggerId));
+}
+
 export async function createWorkflowTrigger(params: {
   workflow: WorkflowRecord;
   triggerType: CreatableTriggerType;
@@ -69,6 +139,21 @@ export async function createWorkflowTrigger(params: {
     isActive,
     updatedAt: new Date(),
   }).returning();
+
+  if (params.triggerType === 'webhook') {
+    try {
+      await syncWebhookRegistration({
+        workflow: params.workflow,
+        trigger: createdTrigger,
+        configuration: normalizedConfiguration,
+        isActive,
+      });
+      return createdTrigger;
+    } catch (error) {
+      await db.delete(triggers).where(eq(triggers.id, createdTrigger.id));
+      throw error;
+    }
+  }
 
   if (params.triggerType !== 'jira_changes_notification' || !isActive) {
     return createdTrigger;
@@ -114,6 +199,8 @@ export async function updateWorkflowTrigger(params: {
 
   const wasJiraNotification = params.trigger.triggerType === 'jira_changes_notification';
   const willBeJiraNotification = nextTriggerType === 'jira_changes_notification';
+  const wasWebhook = params.trigger.triggerType === 'webhook';
+  const willBeWebhook = nextTriggerType === 'webhook';
   const jiraConfigChanged = !configsEqual(params.trigger.configuration, nextConfiguration);
   const previousWebhookIds = wasJiraNotification
     ? Array.isArray((params.trigger.runtimeState as Record<string, unknown> | null)?.webhookRegistrationIds)
@@ -179,6 +266,17 @@ export async function updateWorkflowTrigger(params: {
     }
   }
 
+  if (willBeWebhook) {
+    await syncWebhookRegistration({
+      workflow: params.workflow,
+      trigger: updatedTrigger,
+      configuration: nextConfiguration,
+      isActive: nextIsActive,
+    });
+  } else if (wasWebhook) {
+    await deleteWebhookRegistrationsForTrigger(params.trigger.id);
+  }
+
   return updatedTrigger;
 }
 
@@ -192,7 +290,20 @@ export async function deleteWorkflowTrigger(params: {
       : []
     : [];
 
-  await db.delete(triggers).where(eq(triggers.id, params.trigger.id));
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select id from ${triggers} where ${triggers.id} = ${params.trigger.id} for update`);
+
+    if (params.trigger.triggerType === 'webhook') {
+      await tx.delete(webhookRegistrations).where(eq(webhookRegistrations.triggerId, params.trigger.id));
+    }
+
+    await tx
+      .update(workflowExecutions)
+      .set({ triggerId: null })
+      .where(eq(workflowExecutions.triggerId, params.trigger.id));
+
+    await tx.delete(triggers).where(eq(triggers.id, params.trigger.id));
+  });
 
   if (existingWebhookIds.length > 0) {
     await cleanupSpecificJiraWebhookIds(

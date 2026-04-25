@@ -1,5 +1,5 @@
 import type { FullConfig } from '@playwright/test';
-import { ensureUiBaseReachable } from './helpers/cluster';
+import { ensureUiBaseReachable, snapshotSuperAdminAuthState } from './helpers/cluster';
 
 export default async function globalSetup(config: FullConfig) {
   const project = config.projects[0];
@@ -8,4 +8,5 @@ export default async function globalSetup(config: FullConfig) {
     : (process.env.E2E_BASE_URL ?? 'http://localhost:3002');
 
   await ensureUiBaseReachable(baseURL);
+  snapshotSuperAdminAuthState();
 }

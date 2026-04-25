@@ -1,6 +1,6 @@
 {
   "name": "open-agent-orchestra",
-  "version": "1.31.0",
+  "version": "1.32.2",
   "private": true,
   "description": "Open Agent Orchestra (OAO) — Autonomous AI workflow engine powered by GitHub Copilot SDK",
   "workspaces": [
@@ -12,6 +12,7 @@
     "dev:ui": "npm run dev --workspace=packages/oao-ui",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:report": "node scripts/generate-test-report.mjs",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
@@ -29,7 +30,11 @@
     "docs:preview": "vitepress preview docs --outDir ../docs-dist",
     "docs:deploy": "npm run docs:build && cd docs-dist && touch .nojekyll && git init && git checkout -b gh-pages && git add -A && git commit -m 'docs: deploy' && git push -f git@github.com:thfai2000/open-agent-orchestra.git gh-pages && cd -",
     "docs:release": "node scripts/build-versioned-site.mjs",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "local:access": "bash ./port-forward.sh start",
+    "local:access:status": "bash ./port-forward.sh status",
+    "local:access:stop": "bash ./port-forward.sh stop",
+    "local:access:restart": "bash ./port-forward.sh restart"
   },
   "engines": {
     "node": ">=24.0.0"

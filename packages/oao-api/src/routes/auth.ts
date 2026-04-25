@@ -40,7 +40,7 @@ auth.post('/register', async (c) => {
   }
 
   // Check if registration is allowed
-  if (!workspace.allowRegistration) {
+  if ((workspace.allowRegistration ?? true) === false) {
     return c.json({ error: 'Registration is not allowed for this workspace' }, 403);
   }
 

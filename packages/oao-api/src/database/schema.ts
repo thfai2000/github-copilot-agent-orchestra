@@ -294,7 +294,7 @@ export const workflowExecutions = pgTable('workflow_executions', {
   workflowId: uuid('workflow_id')
     .notNull()
     .references(() => workflows.id, { onDelete: 'cascade' }),
-  triggerId: uuid('trigger_id').references(() => triggers.id),
+  triggerId: uuid('trigger_id').references(() => triggers.id, { onDelete: 'set null' }),
   triggerMetadata: jsonb('trigger_metadata'),
   workflowVersion: integer('workflow_version'), // snapshot of workflow.version at trigger time
   workflowSnapshot: jsonb('workflow_snapshot'), // full snapshot of workflow + steps config

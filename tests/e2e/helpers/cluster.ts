@@ -15,9 +15,15 @@ const API_PORT_FORWARD_STATE_FILE = resolve(process.cwd(), '.playwright-state/oa
 const LOCAL_PROXY_CONTAINER = process.env.E2E_LOCAL_PROXY_CONTAINER ?? 'oao-local-proxy';
 const LOCAL_PROXY_DIR = resolve(process.cwd(), '.playwright-state/oao-local-proxy');
 const LOCAL_PROXY_CONF = resolve(LOCAL_PROXY_DIR, 'default.conf');
+const SUPERADMIN_STATE_FILE = resolve(process.cwd(), '.playwright-state/superadmin-auth-state.json');
 
 interface PortForwardState {
   pid: number;
+}
+
+interface SuperAdminAuthState {
+  passwordHash: string;
+  authProvider: string | null;
 }
 
 function runCommand(command: string, args: string[], allowFailure = false) {
@@ -35,6 +41,10 @@ function runCommand(command: string, args: string[], allowFailure = false) {
 
 function quoteForShell(value: string) {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function escapeSqlLiteral(value: string) {
+  return value.replace(/'/g, "''");
 }
 
 async function isReachable(url: string): Promise<boolean> {
@@ -178,14 +188,21 @@ export async function ensureUiBaseReachable(baseURL: string) {
     : isReachable(readyUrl);
 
   if (isOaoHostBaseUrl(baseURL)) {
-    runCommand('bash', ['scripts/ensure-local-oao-access.sh']);
+    const bridgeCommands: string[][] = [
+      ['scripts/ensure-local-oao-access.sh'],
+      ['scripts/ensure-local-oao-access.sh', 'restart'],
+    ];
 
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      if (await readyCheck()) {
-        return;
+    for (const args of bridgeCommands) {
+      runCommand('bash', args, true);
+
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        if (await readyCheck()) {
+          return;
+        }
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
       }
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
     }
 
     throw new Error(`Timed out waiting for ${readyUrl} after starting the local oao.local bridge.`);
@@ -258,9 +275,57 @@ function runPsql(sql: string) {
   ]).stdout;
 }
 
+export function querySingleValue(sql: string) {
+  return runPsql(sql);
+}
+
+export function getWebhookRegistrationId(triggerId: string) {
+  return runPsql(`select id from webhook_registrations where trigger_id = '${triggerId}' order by created_at desc limit 1;`);
+}
+
+export function getWebhookRequestCount(registrationId: string) {
+  const result = runPsql(`select request_count from webhook_registrations where id = '${registrationId}' limit 1;`);
+  return Number(result || 0);
+}
+
 export async function resetSuperAdminPassword(password: string) {
   const hash = await bcrypt.hash(password, 10);
   runPsql(`update users set password_hash = '${hash}', auth_provider = 'database', updated_at = now() where email = 'admin@oao.local';`);
+}
+
+export function snapshotSuperAdminAuthState() {
+  if (existsSync(SUPERADMIN_STATE_FILE)) {
+    return;
+  }
+
+  const snapshot = querySingleValue(`select json_build_object('passwordHash', password_hash, 'authProvider', auth_provider) from users where email = 'admin@oao.local' limit 1;`);
+  if (!snapshot) {
+    return;
+  }
+
+  mkdirSync(dirname(SUPERADMIN_STATE_FILE), { recursive: true });
+  writeFileSync(SUPERADMIN_STATE_FILE, snapshot, 'utf8');
+}
+
+export function restoreSuperAdminAuthState() {
+  if (!existsSync(SUPERADMIN_STATE_FILE)) {
+    return;
+  }
+
+  try {
+    const state = JSON.parse(readFileSync(SUPERADMIN_STATE_FILE, 'utf8')) as SuperAdminAuthState;
+    if (!state?.passwordHash) {
+      return;
+    }
+
+    const authProviderValue = state.authProvider
+      ? `'${escapeSqlLiteral(state.authProvider)}'`
+      : 'NULL';
+
+    runPsql(`update users set password_hash = '${escapeSqlLiteral(state.passwordHash)}', auth_provider = ${authProviderValue}, updated_at = now() where email = 'admin@oao.local';`);
+  } finally {
+    rmSync(SUPERADMIN_STATE_FILE, { force: true });
+  }
 }
 
 async function waitForApiPodTcpEndpoint(host: string, port: number, timeoutMs = 60_000) {

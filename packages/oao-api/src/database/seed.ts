@@ -3,6 +3,7 @@ import { agents, workflows, workflowSteps, triggers, workspaces, models, users, 
 import { createLogger } from '@oao/shared';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
+import { eq } from 'drizzle-orm';
 
 const logger = createLogger('agent-seed');
 
@@ -48,28 +49,53 @@ async function seed() {
     }
   }
 
-  // Create superadmin user with random password
+  // Create or optionally reset superadmin user.
+  const superAdminEmail = process.env.SUPERADMIN_EMAIL?.trim() || 'admin@oao.local';
+  const configuredSuperAdminPassword = process.env.SUPERADMIN_PASSWORD?.trim() || '';
+  const forceSuperAdminPasswordReset = process.env.SUPERADMIN_FORCE_PASSWORD_RESET === 'true';
   const existingSuperAdmin = await db.query.users.findFirst({
     where: (u, { eq }) => eq(u.role, 'super_admin'),
   });
   if (!existingSuperAdmin) {
-    const randomPassword = randomBytes(16).toString('hex'); // 32-char hex string
-    const passwordHash = await bcrypt.hash(randomPassword, 12);
+    const generatedPassword = randomBytes(16).toString('hex'); // 32-char hex string
+    const superAdminPassword = configuredSuperAdminPassword || generatedPassword;
+    const passwordHash = await bcrypt.hash(superAdminPassword, 12);
     await db.insert(users).values({
-      email: 'admin@oao.local',
+      email: superAdminEmail,
       passwordHash,
       name: 'Super Admin',
       role: 'super_admin',
+      authProvider: 'database',
       workspaceId: resolvedWsId ?? undefined,
     });
     logger.info('═══════════════════════════════════════════════════════════════');
     logger.info('  SUPERADMIN ACCOUNT CREATED');
-    logger.info(`  Email:    admin@oao.local`);
-    logger.info(`  Password: ${randomPassword}`);
+    logger.info(`  Email:    ${superAdminEmail}`);
+    if (configuredSuperAdminPassword) {
+      logger.info('  Password: configured via SUPERADMIN_PASSWORD');
+    } else {
+      logger.info(`  Password: ${generatedPassword}`);
+    }
     logger.info('  ⚠️  Change this password immediately after first login!');
     logger.info('═══════════════════════════════════════════════════════════════');
+  } else if (configuredSuperAdminPassword && forceSuperAdminPasswordReset) {
+    const passwordHash = await bcrypt.hash(configuredSuperAdminPassword, 12);
+    await db.update(users)
+      .set({
+        email: superAdminEmail,
+        passwordHash,
+        authProvider: 'database',
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, existingSuperAdmin.id));
+    logger.info('═══════════════════════════════════════════════════════════════');
+    logger.info('  SUPERADMIN PASSWORD RESET FROM CONFIGURATION');
+    logger.info(`  Email:    ${superAdminEmail}`);
+    logger.info('  Password: configured via SUPERADMIN_PASSWORD');
+    logger.info('  Source:   SUPERADMIN_FORCE_PASSWORD_RESET=true');
+    logger.info('═══════════════════════════════════════════════════════════════');
   } else {
-    logger.info('Superadmin already exists, skipping');
+    logger.info('Superadmin already exists, skipping password reset');
   }
 
   // Create default Database auth provider (idempotent)

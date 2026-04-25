@@ -129,6 +129,31 @@ After deployment, access the platform via ingress at **http://oao.local** (requi
 
 For Docker Desktop on macOS, `deploy.sh` now manages the local host bridge automatically because the cluster's internal load-balancer IP is not consistently reachable from the macOS host. The bridge keeps `http://oao.local` on port `80` working by forwarding to the live UI and API services, and a background monitor restarts dead UI or API port-forwards if they drop later.
 
+If `oao.local` stops responding after a VS Code restart, stale local bridge state, or a terminated `kubectl port-forward`, you do **not** need to redeploy. Recreate the bridge from the repo root with:
+
+```bash
+# start or repair the bridge
+bash port-forward.sh start
+
+# or force a clean restart when the saved PIDs are stale
+bash port-forward.sh restart
+
+# inspect the bridge state
+bash port-forward.sh status
+
+# inspect recent bridge logs
+bash port-forward.sh logs
+```
+
+Equivalent npm shortcuts are also available:
+
+```bash
+npm run local:access
+npm run local:access:restart
+npm run local:access:status
+npm run local:access:stop
+```
+
 ### Option B: Use Docker Compose
 
 See [Host on Docker](/guide/docker) for the compose file, but use your locally built images:
@@ -151,11 +176,21 @@ oao-ui:
 
 Seed data (default workspace, models, and superadmin account) is applied automatically via the Helm `post-install`/`post-upgrade` hook after schema push.
 
-To check the superadmin password:
+If `secrets.SUPERADMIN_PASSWORD` is empty, the first deploy creates a random password. To check it:
 
 ```bash
 kubectl -n open-agent-orchestra logs job/oao-platform-db-migrate | grep -A 5 "SUPERADMIN"
 ```
+
+For local development, you can make the superadmin password deterministic through Helm values or deploy overrides:
+
+```bash
+bash deploy.sh \
+  --set-string secrets.SUPERADMIN_PASSWORD='Admin@OAO2026' \
+  --set-string secrets.SUPERADMIN_FORCE_PASSWORD_RESET=true
+```
+
+`SUPERADMIN_FORCE_PASSWORD_RESET=true` is required only when the superadmin already exists and you intentionally want the next Helm hook run to reset its password. For a private local override file, keep it outside Git, for example `.oao-local/superadmin-values.yaml`, then deploy with `bash deploy.sh -f .oao-local/superadmin-values.yaml`.
 
 **Important:** Change the superadmin password immediately after first login via **Settings → Change Password**.
 
@@ -182,6 +217,8 @@ Without ingress (port-forward fallback):
 kubectl -n open-agent-orchestra port-forward svc/oao-ui 3002:3002 &
 kubectl -n open-agent-orchestra port-forward svc/oao-api 4002:4002 &
 ```
+
+For the `oao.local` bridge used by the default local Helm deployment, prefer the helper script above instead of running the raw port-forwards manually.
 
 | Service | URL |
 |---|---|
@@ -229,6 +266,35 @@ BUILD_TAG=1.30.13 ./build.sh
 # 5. Verify
 curl http://localhost:4002/health
 ```
+
+## Test Audit Report
+
+Use the audit report script when you need a reviewable record of what the automated tests verify and the evidence they produced:
+
+```bash
+npm run test:report
+```
+
+The script runs:
+
+- Shared package Vitest unit tests with JSON and HTML coverage output
+- OAO API Vitest API/integration/functional tests with JSON and HTML coverage output
+- Chromium Playwright E2E tests with JSON, HTML report, traces, and screenshot artifacts
+
+Outputs are written under `test-results/audit-report/`:
+
+| Artifact | Purpose |
+|---|---|
+| `test-audit-report.md` | Human-readable audit summary with each test case, status, and verification intent |
+| `test-audit-report.html` | Standalone HTML audit summary with totals, coverage, screenshots, traces, and per-test verification intent |
+| `shared-coverage/index.html` | Shared package HTML coverage report |
+| `oao-api-coverage/index.html` | API package HTML coverage report |
+| `playwright-html/index.html` | Standard Playwright HTML report with browser evidence |
+| `playwright-artifacts/` | Screenshots, traces, and other per-test evidence |
+| `logs/` | Raw command logs for each test layer |
+
+For repeatable audit evidence, run it after the local Helm stack is reachable at `http://oao.local`.
+The browser audit runs the cluster-backed Playwright tests serially against the shared local deployment. It includes longer cross-entity flows, such as agent CRUD, conversations, workflow CRUD, manual runs, and cleanup, so those scenarios keep full trace and screenshot capture enabled and may run longer than smaller smoke checks.
 
 ## Release Versioning & Git Tags
 

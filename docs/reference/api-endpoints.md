@@ -629,6 +629,8 @@ List executions (paginated). **Auth**: JWT/PAT
 | `status` | `pending` \| `running` \| `completed` \| `failed` \| `cancelled` | Filter by status |
 | `page`, `limit` | integer | Pagination |
 
+Each execution row includes `workflowName`, resolved from the frozen execution snapshot when available and falling back to the current workflow record for older executions.
+
 ### `GET /api/executions/active`
 
 Check for pending/running executions for a workflow. Useful to prevent double-submit. **Auth**: JWT/PAT
@@ -917,6 +919,8 @@ Delete trigger. **Auth**: JWT/PAT · **Role**: `creator_user`+
 ### `POST /api/webhooks/:registrationId`
 
 Receive an external webhook event and trigger the associated workflow.
+
+Workflow webhook triggers automatically provision and maintain the backing webhook registration used by this endpoint.
 
 **Authentication** (one of):
 - **HMAC-SHA256**: `X-Signature` header with `sha256=HMAC(secret, timestamp.body)` + `X-Timestamp`

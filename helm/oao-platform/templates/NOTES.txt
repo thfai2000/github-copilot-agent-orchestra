@@ -26,9 +26,13 @@
 
   Superadmin account (first deploy only):
     Email:    admin@oao.local
+{{- if .Values.secrets.SUPERADMIN_PASSWORD }}
+    Password: configured via secrets.SUPERADMIN_PASSWORD
+{{- else }}
     Password: check job logs ↓
 
     kubectl -n {{ .Values.namespace }} logs job/{{ .Release.Name }}-db-migrate | grep -A 5 "SUPERADMIN"
+{{- end }}
 
     ⚠  Change the superadmin password immediately via
        Settings → Change Password.

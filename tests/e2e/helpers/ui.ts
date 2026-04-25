@@ -6,11 +6,6 @@ function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function uniqueForwardedIp() {
-  const octet = () => Math.floor(Math.random() * 200) + 20;
-  return `10.${octet()}.${octet()}.${octet()}`;
-}
-
 function fieldContainer(root: FieldRoot, label: string | RegExp) {
   const matcher = typeof label === 'string'
     ? new RegExp(`^${escapeRegex(label)}(?:\\s*\\*)?$`)
@@ -92,13 +87,48 @@ export async function selectOption(page: Page, label: string | RegExp, option: s
   await expect(optionLocators[0]).toBeVisible({ timeout: 8_000 });
 }
 
+export async function dismissVisibleToasts(page: Page) {
+  const toastRoot = page.locator('.p-toast').first();
+  if (await toastRoot.isVisible({ timeout: 250 }).catch(() => false)) {
+    await expect(toastRoot).toBeHidden({ timeout: 6_000 });
+  }
+}
+
+export async function confirmDeleteDialog(page: Page) {
+  const dialog = page.getByRole('alertdialog', { name: /Confirm Delete/i });
+  await expect(dialog).toBeVisible();
+  const deleteButton = dialog.getByRole('button', { name: /^Delete$/ });
+  await expect(deleteButton).toBeEnabled();
+  await deleteButton.click({ force: true });
+}
+
+export async function openTab(page: Page, name: string | RegExp) {
+  const tab = page.getByRole('tab', { name }).first();
+  await expect(tab).toBeVisible();
+
+  const panelId = await tab.getAttribute('aria-controls');
+  expect(panelId).toBeTruthy();
+  const escapedPanelId = panelId!.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const panel = page.locator(`[id="${escapedPanelId}"]`);
+
+  if (await panel.isVisible().catch(() => false)) {
+    return panel;
+  }
+
+  await expect(async () => {
+    await tab.scrollIntoViewIfNeeded();
+    await tab.click({ force: true });
+    await expect(panel).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+
+  return panel;
+}
+
 export async function loginViaUi(page: Page, params: {
   identifier: string;
   password: string;
   providerLabel?: 'Email & Password' | 'Active Directory';
 }) {
-  const forwardedIp = uniqueForwardedIp();
-  await page.context().setExtraHTTPHeaders({ 'x-forwarded-for': forwardedIp });
   await page.context().clearCookies();
   const providersResponse = page.waitForResponse((response) => {
     return response.url().includes('/api/auth/providers') && response.request().method() === 'GET';
@@ -107,33 +137,29 @@ export async function loginViaUi(page: Page, params: {
   await providersResponse;
   await page.waitForLoadState('networkidle');
 
-  try {
-    if (params.providerLabel) {
-      const identifierLabel = page.locator('label[for="identifier"]').first();
-      const currentLabel = ((await identifierLabel.textContent()) || '').trim();
-      const wantsLdap = params.providerLabel === 'Active Directory';
-      const expectedIdentifierLabel = wantsLdap ? 'Username or Email' : 'Email';
-      const needsProviderSwitch = wantsLdap
-        ? currentLabel !== 'Username or Email'
-        : currentLabel !== 'Email';
+  if (params.providerLabel) {
+    const identifierLabel = page.locator('label[for="identifier"]').first();
+    const currentLabel = ((await identifierLabel.textContent()) || '').trim();
+    const wantsLdap = params.providerLabel === 'Active Directory';
+    const expectedIdentifierLabel = wantsLdap ? 'Username or Email' : 'Email';
+    const needsProviderSwitch = wantsLdap
+      ? currentLabel !== 'Username or Email'
+      : currentLabel !== 'Email';
 
-      const providerButton = page.getByRole('button', { name: params.providerLabel, exact: true }).first();
-      if (needsProviderSwitch && await providerButton.count()) {
+    const providerButton = page.getByRole('button', { name: params.providerLabel, exact: true }).first();
+    if (needsProviderSwitch && await providerButton.count()) {
+      await providerButton.click();
+      if (!await identifierLabel.filter({ hasText: new RegExp(`^${escapeRegex(expectedIdentifierLabel)}$`) }).isVisible({ timeout: 3_000 }).catch(() => false)) {
         await providerButton.click();
-        if (!await identifierLabel.filter({ hasText: new RegExp(`^${escapeRegex(expectedIdentifierLabel)}$`) }).isVisible({ timeout: 3_000 }).catch(() => false)) {
-          await providerButton.click();
-        }
-        await expect(identifierLabel).toHaveText(expectedIdentifierLabel);
       }
+      await expect(identifierLabel).toHaveText(expectedIdentifierLabel);
     }
-
-    await fillField(page, /Username or Email|Email/, params.identifier);
-    await fillField(page, 'Password', params.password);
-    await page.getByRole('button', { name: /Sign In/i }).click();
-    await expect(page).toHaveURL(/\/default(?:\?.*)?$/);
-  } finally {
-    await page.context().setExtraHTTPHeaders({});
   }
+
+  await fillField(page, /Username or Email|Email/, params.identifier);
+  await fillField(page, 'Password', params.password);
+  await page.getByRole('button', { name: /Sign In/i }).click();
+  await expect(page).toHaveURL(/\/default(?:\?.*)?$/);
 }
 
 export async function logoutViaUi(page: Page) {

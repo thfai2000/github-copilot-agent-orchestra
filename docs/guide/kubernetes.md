@@ -60,10 +60,10 @@ api:
   port: 4002
   resources:
     requests:
-      memory: 256Mi
+      memory: 512Mi
       cpu: 200m
     limits:
-      memory: 512Mi
+      memory: 1Gi
       cpu: 500m
 
 ui:
@@ -107,7 +107,12 @@ secrets:
   ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   GITHUB_TOKEN: "your-github-token"
   DEFAULT_LLM_API_KEY: ""
+  SUPERADMIN_EMAIL: "admin@oao.local"
+  SUPERADMIN_PASSWORD: ""                  # Empty = generate random password on first deploy
+  SUPERADMIN_FORCE_PASSWORD_RESET: "false" # Set true only for intentional reset of an existing superadmin
 ```
+
+For local clusters that run parallel Playwright or multiple conversation turns at once, keep the `oao-api` limit at `1Gi`. Conversation requests can spin up multiple MCP subprocesses and a `512Mi` cap is not enough under concurrent local test load.
 
 ### 3. Deploy with Helm
 
@@ -142,10 +147,20 @@ kubectl -n open-agent-orchestra rollout status deployment/oao-ui --timeout=120s
 > The hook waits for PostgreSQL to be ready, then runs `drizzle-kit push` followed by the seed script. No manual step needed.
 > When using locally built images on Docker Desktop Kubernetes, the hook reuses `coreImage` with `imagePullPolicy: IfNotPresent`, so you do not need to preload the image manually.
 > In local clusters where service-name DNS is unstable, the hook also falls back to the Kubernetes service-host environment variables for both the readiness probe and the connection string before running schema push.
-> On first deploy, a **superadmin** account is created with a random password. Check the job logs:
+> On Docker Desktop multi-node clusters, OAO also co-locates the migration hook and other database-dependent backend pods with PostgreSQL so local cross-node service routing does not stall upgrades.
+> On first deploy, a **superadmin** account is created. If `secrets.SUPERADMIN_PASSWORD` is empty, OAO generates a random password and prints it in the hook logs:
 > ```bash
 > kubectl -n open-agent-orchestra logs job/oao-platform-db-migrate | grep -A 5 "SUPERADMIN"
 > ```
+> To make the local password deterministic, provide an override at deploy time:
+> ```bash
+> helm upgrade --install oao-platform helm/oao-platform \
+>   -f helm/oao-platform/values.yaml \
+>   --set-string secrets.SUPERADMIN_PASSWORD='Admin@OAO2026' \
+>   --set-string secrets.SUPERADMIN_FORCE_PASSWORD_RESET=true \
+>   --namespace open-agent-orchestra --create-namespace
+> ```
+> The force flag is required to reset an already-created superadmin. Without it, existing superadmin credentials are left unchanged.
 > **Change the superadmin password immediately** via Settings → Change Password.
 
 ### 5. Access the Platform
@@ -241,6 +256,28 @@ bash deploy.sh
 :::
 
 When using Docker Desktop on macOS for local development, `deploy.sh` waits for the core workloads to finish rolling out and then starts a small local access bridge so `http://oao.local` stays usable from the host even when the cluster's internal load-balancer IP is not directly routable from macOS.
+
+If that bridge is lost later, for example after a VS Code restart, rerun it from the repo root instead of redeploying the chart:
+
+```bash
+bash port-forward.sh start
+
+# or force a clean restart if the recorded port-forward PIDs are stale
+bash port-forward.sh restart
+
+# optional diagnostics
+bash port-forward.sh status
+bash port-forward.sh logs
+```
+
+You can also use the npm shortcuts:
+
+```bash
+npm run local:access
+npm run local:access:restart
+npm run local:access:status
+npm run local:access:stop
+```
 
 The API, controller, and agent-worker pods also rewrite their Postgres, Redis, and internal API URLs from Kubernetes-injected service host env vars at startup, so local service-to-service traffic can survive transient in-cluster DNS failures.
 

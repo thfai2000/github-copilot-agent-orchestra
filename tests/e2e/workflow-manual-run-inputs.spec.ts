@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './helpers/fixtures';
 import { resetSuperAdminPassword, uniqueName } from './helpers/cluster';
-import { fillField, loginViaUi } from './helpers/ui';
+import { fillField, loginViaUi, openTab } from './helpers/ui';
 
 const ADMIN_EMAIL = 'admin@oao.local';
 const ADMIN_PASSWORD = 'AdminPass123!';
@@ -97,8 +97,7 @@ test('manual run rejects missing required webhook inputs and accepts a valid pay
   await expect(page).toHaveURL(new RegExp(`/default/workflows/${createdWorkflowId}$`));
 
   await expect(page.getByRole('button', { name: /Manual Run/i })).toBeVisible();
-  await page.getByRole('tab', { name: /Triggers \(1\)/i }).click();
-  const visibleTabPanel = page.locator('[role="tabpanel"]:visible');
+  const visibleTabPanel = await openTab(page, /Triggers \(1\)/i);
   await expect(visibleTabPanel).toContainText(webhookPath, { timeout: 10_000 });
   await expect(visibleTabPanel).toContainText('2 parameters', { timeout: 10_000 });
 

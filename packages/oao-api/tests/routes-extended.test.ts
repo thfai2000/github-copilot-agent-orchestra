@@ -69,6 +69,7 @@ function buildChainableMock() {
       creditUsage: { findFirst: mockFindFirst, findMany: mockFindMany },
     },
     select: vi.fn().mockImplementation(() => createSelectChain([])),
+    execute: vi.fn().mockResolvedValue([]),
     insert: mockInsert,
     update: mockUpdate,
     delete: mockDeleteObj,
@@ -1409,11 +1410,13 @@ describe('Trigger routes — updates and deletes', () => {
 
   it('DELETE /api/triggers/:id deletes trigger', async () => {
     const token = await getToken();
+    const deleteCallCountBefore = mockDeleteObj.mock.calls.length;
     // verifyTriggerAccess: 1st = trigger, 2nd = workflow (user-scoped, same user)
     mockFindFirst
       .mockResolvedValueOnce({
         id: TEST_TRIGGER_ID,
         workflowId: TEST_WORKFLOW_ID,
+        triggerType: 'webhook',
       })
       .mockResolvedValueOnce({
         id: TEST_WORKFLOW_ID,
@@ -1427,6 +1430,7 @@ describe('Trigger routes — updates and deletes', () => {
       headers: authHeaders(token),
     });
     expect(res.status).toBe(200);
+    expect(mockDeleteObj.mock.calls.length - deleteCallCountBefore).toBeGreaterThanOrEqual(2);
   });
 
   it('DELETE /api/triggers/:id — non-admin cannot delete workspace-scope trigger', async () => {
@@ -1478,6 +1482,57 @@ describe('Trigger routes — updates and deletes', () => {
       }),
     });
     expect(res.status).toBe(201);
+  });
+
+  it('POST /api/triggers creates a webhook registration for webhook triggers', async () => {
+    const token = await getToken();
+    const valuesCallCountBefore = mockValues.mock.calls.length;
+    mockFindFirst
+      .mockResolvedValueOnce({
+        id: TEST_WORKFLOW_ID,
+        workspaceId: TEST_WORKSPACE_ID,
+        userId: TEST_UUID,
+        scope: 'user',
+        defaultAgentId: TEST_AGENT_ID,
+      })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mockInsertReturning
+      .mockResolvedValueOnce([{
+        id: TEST_TRIGGER_ID,
+        workflowId: TEST_WORKFLOW_ID,
+        triggerType: 'webhook',
+        configuration: { path: '/pw-hook' },
+        isActive: true,
+        runtimeState: {},
+      }])
+      .mockResolvedValueOnce([{ id: 'webhook-reg-001' }]);
+
+    const res = await app.request('/api/triggers', {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        workflowId: TEST_WORKFLOW_ID,
+        triggerType: 'webhook',
+        configuration: { path: '/pw-hook' },
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const newInsertPayloads = mockValues.mock.calls
+      .slice(valuesCallCountBefore)
+      .map(([payload]) => payload);
+
+    expect(newInsertPayloads).toContainEqual(expect.objectContaining({
+      triggerType: 'webhook',
+      workflowId: TEST_WORKFLOW_ID,
+    }));
+    expect(newInsertPayloads).toContainEqual(expect.objectContaining({
+      agentId: TEST_AGENT_ID,
+      triggerId: TEST_TRIGGER_ID,
+      endpointPath: '/pw-hook',
+      isActive: true,
+    }));
   });
 });
 

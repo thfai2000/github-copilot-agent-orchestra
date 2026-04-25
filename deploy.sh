@@ -50,6 +50,7 @@ echo ""
 
 helm upgrade --install oao-platform "${HELM_DIR}/oao-platform" \
   -f "${HELM_DIR}/oao-platform/values.yaml" \
+  "$@" \
   --namespace open-agent-orchestra --create-namespace
 
 echo ""

@@ -1,5 +1,8 @@
 <template>
-  <div>
+  <div v-if="isHistoricalVersionRoute">
+    <NuxtPage />
+  </div>
+  <div v-else>
     <Breadcrumb :model="[{ label: 'Home', route: `/${ws}` }, { label: 'Agents', route: `/${ws}/agents` }, { label: agent?.name || 'Loading...' }]" class="mb-4 -ml-1">
       <template #item="{ item }">
         <NuxtLink v-if="item.route" :to="item.route" class="text-primary hover:underline">{{ item.label }}</NuxtLink>
@@ -285,6 +288,7 @@ const toast = useToast();
 const confirm = useConfirm();
 const ws = computed(() => (route.params.workspace as string) || 'default');
 const agentId = computed(() => route.params.id as string);
+const isHistoricalVersionRoute = computed(() => Boolean(route.params.version));
 const { buildCredentialOptions, filterGitAuthCredentialOptions, filterCopilotCredentialOptions } = useAgentCredentialOptions();
 
 const activeTab = ref<string | number>('overview');

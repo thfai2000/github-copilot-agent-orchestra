@@ -22,6 +22,16 @@ async function getVisibleWorkflowIds(workspaceId: string, userId: string): Promi
   return visible.map((w) => w.id);
 }
 
+function getWorkflowNameFromSnapshot(snapshot: unknown): string | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+
+  const workflowSnapshot = (snapshot as { workflow?: unknown }).workflow;
+  if (!workflowSnapshot || typeof workflowSnapshot !== 'object') return null;
+
+  const name = (workflowSnapshot as { name?: unknown }).name;
+  return typeof name === 'string' && name.trim().length > 0 ? name : null;
+}
+
 /** Helper: verify execution belongs to user's workspace */
 async function verifyExecutionAccess(
   executionId: string,
@@ -80,8 +90,25 @@ executionsRouter.get('/', async (c) => {
       .where(where),
   ]);
 
+  const workflowIdsMissingSnapshotNames = [...new Set(executions
+    .filter((execution) => !getWorkflowNameFromSnapshot(execution.workflowSnapshot))
+    .map((execution) => execution.workflowId))];
+
+  const workflowNameRows = workflowIdsMissingSnapshotNames.length > 0
+    ? await db
+      .select({ id: workflows.id, name: workflows.name })
+      .from(workflows)
+      .where(inArray(workflows.id, workflowIdsMissingSnapshotNames))
+    : [];
+
+  const workflowNameMap = new Map(workflowNameRows.map((workflow) => [workflow.id, workflow.name]));
+  const serializedExecutions = executions.map((execution) => ({
+    ...execution,
+    workflowName: getWorkflowNameFromSnapshot(execution.workflowSnapshot) ?? workflowNameMap.get(execution.workflowId) ?? null,
+  }));
+
   return c.json({
-    executions,
+    executions: serializedExecutions,
     total: countResult[0].count,
     page: query.page,
     limit: query.limit,

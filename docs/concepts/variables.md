@@ -63,6 +63,7 @@ Variables are first-class versioned resources across **all three scopes**.
 
 - The latest editable page lives at `/{workspace}/variables/{scope}/{id}`
 - Historical snapshots live at `/{workspace}/variables/{scope}/{id}/v/{version}`
+- Direct navigation to a historical URL opens that dedicated read-only snapshot view rather than the latest editable variable page
 - Updating a variable increments that variable's version and stores the previous snapshot
 - Deleting a variable preserves a final read-only historical snapshot marked as deleted
 - Agent-scoped variable changes also increment the owning agent version so agent history remains aligned with its files and variables

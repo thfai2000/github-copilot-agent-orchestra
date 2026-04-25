@@ -15,6 +15,13 @@ spec:
       labels:
         app: oao-api
     spec:
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: postgres
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: oao-api
           image: {{ .Values.coreImage }}

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { ensureClusterLdap, cleanupClusterLdap, resetSuperAdminPassword, uniqueEmail, uniqueName } from './helpers/cluster';
 import { fillField, loginViaUi, logoutViaUi, selectOption } from './helpers/ui';
 
@@ -36,8 +36,13 @@ test('database registration, logout, login, and password change work through the
   await fillField(page, 'Current Password', password);
   await fillField(page, 'New Password', nextPassword);
   await fillField(page, 'Confirm New Password', nextPassword);
+  const changePasswordResponsePromise = page.waitForResponse((response) => {
+    return response.url().includes('/api/auth/change-password') && response.request().method() === 'PUT';
+  });
   await page.getByRole('button', { name: /Update Password/i }).click();
-  await expect(page.getByText('Password updated successfully.')).toBeVisible();
+  const changePasswordResponse = await changePasswordResponsePromise;
+  expect(changePasswordResponse.status()).toBe(200);
+  await expect(page.locator('.p-message').filter({ hasText: 'Password updated successfully.' })).toBeVisible();
 
   await logoutViaUi(page);
   await loginViaUi(page, { identifier: email, password: nextPassword, providerLabel: 'Email & Password' });

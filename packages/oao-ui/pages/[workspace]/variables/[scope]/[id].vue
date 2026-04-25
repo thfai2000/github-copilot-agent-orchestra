@@ -1,5 +1,8 @@
 <template>
-  <div>
+  <div v-if="isHistoricalVersionRoute">
+    <NuxtPage />
+  </div>
+  <div v-else>
     <Breadcrumb :model="breadcrumbs" class="mb-4 -ml-1">
       <template #item="{ item }">
         <NuxtLink v-if="item.route" :to="item.route" class="text-primary hover:underline">{{ item.label }}</NuxtLink>
@@ -117,6 +120,7 @@ const ws = computed(() => (route.params.workspace as string) || 'default');
 const variableId = computed(() => route.params.id as string);
 const rawScope = computed(() => route.params.scope as string);
 const validScope = computed(() => ['workspace', 'user', 'agent'].includes(rawScope.value) ? rawScope.value as 'workspace' | 'user' | 'agent' : 'workspace');
+const isHistoricalVersionRoute = computed(() => Boolean(route.params.version));
 
 const saveError = ref('');
 const saving = ref(false);

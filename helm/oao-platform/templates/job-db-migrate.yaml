@@ -17,6 +17,13 @@ spec:
       labels:
         app: db-migrate
     spec:
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: postgres
+              topologyKey: kubernetes.io/hostname
       restartPolicy: Never
       containers:
         - name: db-migrate

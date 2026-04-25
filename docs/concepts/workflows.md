@@ -36,6 +36,7 @@ Workflows keep immutable version history for the workflow definition, ordered st
 - The latest editable page lives at `/{workspace}/workflows/:id`
 - Historical snapshots live at `/{workspace}/workflows/:id/v/:version`
 - Historical pages are read-only and are the target for execution detail links, so users can inspect the exact workflow version that produced an execution
+- Direct navigation to a historical URL opens that dedicated read-only snapshot view rather than the latest editable workflow page
 
 Workflow history captures the state before each edit so older versions remain navigable even after later changes.
 
@@ -201,6 +202,8 @@ When clicked, the UI shows input fields based on the webhook trigger's **paramet
 
 Manual Run calls `POST /api/workflows/:id/run`, which inserts a `webhook.received` event into the event system. The Controller picks it up in the next poll cycle and enqueues the execution.
 
+Deleting a workflow removes its live trigger configuration and execution records while preserving trigger metadata already snapshotted onto execution rows. Trigger deletion clears execution `triggerId` references transactionally so recently accepted manual or webhook runs do not block cleanup.
+
 ### Webhook Parameters
 
 Webhook triggers support **user-defined parameters**:
@@ -211,7 +214,7 @@ Webhook triggers support **user-defined parameters**:
 | **Required** | If `true`, the parameter must be provided (validated on webhook and manual run) |
 | **Description** | Optional help text shown in the Manual Run dialog |
 
-When a webhook fires (`POST /api/webhooks/:path`), the request body is validated against the parameter definitions. Only defined parameters are passed through as `inputs`.
+When a webhook fires (`POST /api/webhooks/:registrationId`), the request body is validated against the parameter definitions. Only defined parameters are passed through as `inputs`. The workflow trigger provisions and maintains that registration automatically behind the scenes.
 
 ### Webhook Security
 

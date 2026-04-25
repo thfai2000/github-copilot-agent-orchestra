@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const auditMode = process.env.PLAYWRIGHT_AUDIT === '1';
+const auditReportDir = process.env.OAO_TEST_REPORT_DIR ?? 'test-results/audit-report';
+
 /**
  * Playwright configuration for OAO end-to-end tests.
  *
@@ -10,16 +13,24 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60_000,
+  workers: auditMode ? 1 : undefined,
   expect: { timeout: 10_000 },
-  reporter: [['list']],
+  reporter: auditMode
+    ? [
+      ['list'],
+      ['html', { outputFolder: `${auditReportDir}/playwright-html`, open: 'never' }],
+      ['json', { outputFile: `${auditReportDir}/playwright-results.json` }],
+    ]
+    : [['list']],
+  outputDir: auditMode ? `${auditReportDir}/playwright-artifacts` : 'test-results',
   retries: 0,
   forbidOnly: true,
   globalSetup: './tests/e2e/global-setup.ts',
   globalTeardown: './tests/e2e/global-teardown.ts',
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://oao.local',
-    trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: auditMode ? 'on' : 'retain-on-failure',
+    screenshot: auditMode ? 'on' : 'only-on-failure',
     video: 'retain-on-failure',
   },
   projects: [

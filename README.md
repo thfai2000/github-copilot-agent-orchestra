@@ -114,7 +114,7 @@ bash deploy.sh
 
 ### Superadmin Account
 
-On first deploy, the Helm hook automatically creates a **superadmin** account with a random password. To find the password, check the database migration job logs:
+On first deploy, the Helm hook automatically creates a **superadmin** account. By default the password is random. To find the generated password, check the database migration job logs:
 
 ```bash
 kubectl -n open-agent-orchestra logs job/oao-platform-db-migrate | grep -A 5 "SUPERADMIN"
@@ -130,6 +130,16 @@ You will see output like:
 ```
 
 **Important:** Log in with these credentials and change the password immediately via **Settings → Change Password** in the UI.
+
+For deterministic local development credentials, deploy with a private Helm override instead of relying on hook logs:
+
+```bash
+bash deploy.sh \
+  --set-string secrets.SUPERADMIN_PASSWORD='Admin@OAO2026' \
+  --set-string secrets.SUPERADMIN_FORCE_PASSWORD_RESET=true
+```
+
+The force flag is required to reset an already-created superadmin. You can also keep the same values in an ignored file such as `.oao-local/superadmin-values.yaml` and pass it with `bash deploy.sh -f .oao-local/superadmin-values.yaml`.
 
 ## Tech Stack
 

@@ -16,6 +16,13 @@ spec:
       labels:
         app: oao-agent-worker
     spec:
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: postgres
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: agent-worker
           image: {{ .Values.coreImage }}

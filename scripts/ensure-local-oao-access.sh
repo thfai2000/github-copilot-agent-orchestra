@@ -24,6 +24,19 @@ MONITOR_INTERVAL_SECONDS="${OAO_BRIDGE_MONITOR_INTERVAL_SECONDS:-2}"
 
 mkdir -p "${STATE_DIR}"
 
+print_usage() {
+  cat <<EOF
+Usage: $(basename "$0") [start|stop|restart|status|logs|--monitor]
+
+Commands:
+  start    Ensure the local oao.local bridge is running (default)
+  stop     Stop the managed port-forwards, monitor, and local proxy
+  restart  Stop then start the bridge again
+  status   Show whether the monitor, port-forwards, and proxy are healthy
+  logs     Print recent bridge logs
+EOF
+}
+
 is_http_ready() {
   local url="$1"
   curl -fsSI --max-time 2 "$url" >/dev/null 2>&1
@@ -46,6 +59,28 @@ is_pid_running() {
 
 is_proxy_running() {
   docker ps --filter "name=^/${PROXY_CONTAINER}$" --format '{{.Names}}' | grep -Fxq "${PROXY_CONTAINER}"
+}
+
+stop_pid_file_process() {
+  local pid_file="$1"
+  if [[ ! -f "$pid_file" ]]; then
+    return 0
+  fi
+
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if is_pid_running "$pid"; then
+    kill "$pid" 2>/dev/null || true
+    local deadline=$((SECONDS + 10))
+    while is_pid_running "$pid" && (( SECONDS < deadline )); do
+      sleep 1
+    done
+    if is_pid_running "$pid"; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  fi
+
+  rm -f "$pid_file"
 }
 
 start_port_forward() {
@@ -127,6 +162,104 @@ ensure_proxy() {
   start_proxy
 }
 
+stop_proxy() {
+  docker rm -f "${PROXY_CONTAINER}" >/dev/null 2>&1 || true
+}
+
+show_logs() {
+  local printed=0
+  for log_file in "${MONITOR_LOG}" "${UI_LOG}" "${API_LOG}"; do
+    if [[ -f "$log_file" ]]; then
+      printed=1
+      echo "===== ${log_file##*/} ====="
+      tail -n 40 "$log_file"
+      echo
+    fi
+  done
+
+  if [[ "$printed" -eq 0 ]]; then
+    echo "No bridge logs found in ${STATE_DIR}."
+  fi
+}
+
+show_status() {
+  local ui_state="stopped"
+  local api_state="stopped"
+  local monitor_state="stopped"
+  local proxy_state="stopped"
+
+  local ui_pid=""
+  local api_pid=""
+  local monitor_pid=""
+
+  if [[ -f "${UI_PID_FILE}" ]]; then
+    ui_pid="$(cat "${UI_PID_FILE}" 2>/dev/null || true)"
+    if is_pid_running "$ui_pid" && is_http_ready "http://127.0.0.1:${UI_PORT}"; then
+      ui_state="running"
+    elif is_pid_running "$ui_pid"; then
+      ui_state="pid-alive-unhealthy"
+    else
+      ui_state="stale-pid"
+    fi
+  fi
+
+  if [[ -f "${API_PID_FILE}" ]]; then
+    api_pid="$(cat "${API_PID_FILE}" 2>/dev/null || true)"
+    if is_pid_running "$api_pid" && is_http_ready "http://127.0.0.1:${API_PORT}/health"; then
+      api_state="running"
+    elif is_pid_running "$api_pid"; then
+      api_state="pid-alive-unhealthy"
+    else
+      api_state="stale-pid"
+    fi
+  fi
+
+  if [[ -f "${MONITOR_PID_FILE}" ]]; then
+    monitor_pid="$(cat "${MONITOR_PID_FILE}" 2>/dev/null || true)"
+    if is_pid_running "$monitor_pid"; then
+      monitor_state="running"
+    else
+      monitor_state="stale-pid"
+    fi
+  fi
+
+  if is_proxy_running; then
+    proxy_state="running"
+  fi
+
+  echo "Host: http://${HOST_NAME}"
+  echo "Monitor: ${monitor_state}${monitor_pid:+ (pid ${monitor_pid})}"
+  echo "UI port-forward: ${ui_state}${ui_pid:+ (pid ${ui_pid})}"
+  echo "API port-forward: ${api_state}${api_pid:+ (pid ${api_pid})}"
+  echo "Proxy container: ${proxy_state}"
+
+  if is_http_ready_get "http://127.0.0.1/api/auth/providers?workspace=default" "${READY_HOST_HEADER}"; then
+    echo "Readiness: ready"
+  else
+    echo "Readiness: not ready"
+  fi
+}
+
+stop_bridge() {
+  stop_pid_file_process "${MONITOR_PID_FILE}"
+  stop_pid_file_process "${UI_PID_FILE}"
+  stop_pid_file_process "${API_PID_FILE}"
+  stop_proxy
+  echo "Stopped local OAO bridge for http://${HOST_NAME}"
+}
+
+start_bridge() {
+  ensure_port_forward "http://127.0.0.1:${UI_PORT}" "${UI_PID_FILE}" "${UI_LOG}" \
+    kubectl -n "${NAMESPACE}" port-forward "${UI_RESOURCE}" "${UI_PORT}:${UI_PORT}"
+
+  ensure_port_forward "http://127.0.0.1:${API_PORT}/health" "${API_PID_FILE}" "${API_LOG}" \
+    kubectl -n "${NAMESPACE}" port-forward "${API_RESOURCE}" "${API_PORT}:${API_PORT}"
+
+  ensure_proxy
+  wait_for_bridge_ready || true
+  ensure_monitor_daemon
+}
+
 wait_for_bridge_ready() {
   local deadline=$(( $(date +%s) + 20 ))
   while (( $(date +%s) < deadline )); do
@@ -204,13 +337,30 @@ if [[ "${1:-}" == "--monitor" ]]; then
   exit 0
 fi
 
-ensure_port_forward "http://127.0.0.1:${UI_PORT}" "${UI_PID_FILE}" "${UI_LOG}" \
-  kubectl -n "${NAMESPACE}" port-forward "${UI_RESOURCE}" "${UI_PORT}:${UI_PORT}"
+case "${1:-start}" in
+  start)
+    start_bridge
+    ;;
+  stop)
+    stop_bridge
+    ;;
+  restart)
+    stop_bridge
+    start_bridge
+    ;;
+  status)
+    show_status
+    ;;
+  logs)
+    show_logs
+    ;;
+  -h|--help|help)
+    print_usage
+    ;;
+  *)
+    print_usage >&2
+    exit 1
+    ;;
+esac
 
-ensure_port_forward "http://127.0.0.1:${API_PORT}/health" "${API_PID_FILE}" "${API_LOG}" \
-  kubectl -n "${NAMESPACE}" port-forward "${API_RESOURCE}" "${API_PORT}:${API_PORT}"
-
-ensure_proxy
-wait_for_bridge_ready || true
-ensure_monitor_daemon
 exit 0
