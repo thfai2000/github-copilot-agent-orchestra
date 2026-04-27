@@ -14,7 +14,7 @@
 
           <div v-if="providers.length > 1" class="mb-4">
             <label class="block text-sm font-medium mb-2">Authentication Method</label>
-            <SelectButton v-model="selectedProvider" :options="providers" optionLabel="label" optionValue="type" class="w-full" />
+            <Select v-model="selectedProvider" :options="providers" optionLabel="label" optionValue="type" class="w-full" />
           </div>
 
           <form @submit.prevent="handleLogin" class="flex flex-col gap-4">

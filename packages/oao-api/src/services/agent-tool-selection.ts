@@ -8,6 +8,7 @@ export const BUILTIN_TOOL_NAMES = [
   'read_variables',
   'edit_variables',
   'simple_http_request',
+  'ask_questions',
 ] as const;
 
 export type BuiltInToolName = (typeof BUILTIN_TOOL_NAMES)[number];
@@ -16,7 +17,7 @@ export interface BuiltInToolCatalogEntry {
   name: BuiltInToolName;
   label: string;
   description: string;
-  group: 'Workflow' | 'Knowledge' | 'Variables' | 'Network';
+  group: 'Workflow' | 'Knowledge' | 'Variables' | 'Network' | 'Interactive';
 }
 
 export interface ExplicitAgentToolSelection {
@@ -80,6 +81,12 @@ export const BUILTIN_TOOL_CATALOG: ReadonlyArray<BuiltInToolCatalogEntry> = [
     label: 'Simple HTTP Request',
     description: 'Make templated HTTP requests to external APIs.',
     group: 'Network',
+  },
+  {
+    name: 'ask_questions',
+    label: 'Ask Questions',
+    description: 'Ask the user clarifying questions and wait for the answers. Works in conversations and in workflow steps (the step pauses in `awaiting_input` until the user replies or the timeout elapses).',
+    group: 'Interactive',
   },
 ] as const;
 

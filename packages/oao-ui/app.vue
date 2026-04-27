@@ -117,11 +117,13 @@ const mainNav = computed(() => [
   { to: `/${ws.value}/instances`, icon: 'pi pi-server', label: 'Instances' },
   { to: `/${ws.value}/events`, icon: 'pi pi-bell', label: 'Events' },
   { to: `/${ws.value}/variables`, icon: 'pi pi-key', label: 'Variables' },
+  { to: `/${ws.value}/models`, icon: 'pi pi-box', label: 'Models' },
 ]);
 
 const adminNav = computed(() => [
   { to: `/${ws.value}/admin/users`, icon: 'pi pi-users', label: 'Users' },
-  { to: `/${ws.value}/admin/models`, icon: 'pi pi-box', label: 'Models' },
+  { to: `/${ws.value}/admin/user-groups`, icon: 'pi pi-id-card', label: 'User Groups' },
+  { to: `/${ws.value}/admin/rbac`, icon: 'pi pi-sitemap', label: 'Roles & Access' },
   { to: `/${ws.value}/admin/auth-providers`, icon: 'pi pi-lock', label: 'Auth Providers' },
   { to: `/${ws.value}/admin/security`, icon: 'pi pi-shield', label: 'Security' },
   { to: `/${ws.value}/admin/rate-limits`, icon: 'pi pi-gauge', label: 'Rate Limits' },

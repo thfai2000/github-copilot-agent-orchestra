@@ -13,7 +13,9 @@ import {
   jsonb,
   index,
   customType,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // ─── Enums ───────────────────────────────────────────────────────────
 
@@ -41,6 +43,7 @@ export const executionStatusEnum = pgEnum('execution_status', [
 export const stepStatusEnum = pgEnum('step_status', [
   'pending',
   'running',
+  'awaiting_input',
   'completed',
   'failed',
   'skipped',
@@ -68,6 +71,7 @@ export const modelProviderTypeEnum = pgEnum('model_provider_type', ['github', 'c
 export const customModelProviderTypeEnum = pgEnum('custom_model_provider_type', ['openai', 'azure', 'anthropic']);
 export const customModelProviderAuthTypeEnum = pgEnum('custom_model_provider_auth_type', ['none', 'api_key', 'bearer_token']);
 export const customModelProviderWireApiEnum = pgEnum('custom_model_provider_wire_api', ['completions', 'responses']);
+export const modelCatalogSourceEnum = pgEnum('model_catalog_source', ['github_catalog', 'custom']);
 
 // ─── Workspaces ──────────────────────────────────────────────────────
 
@@ -261,6 +265,16 @@ export const conversations = pgTable('conversations', {
   agentNameSnapshot: varchar('agent_name_snapshot', { length: 100 }).notNull(),
   title: varchar('title', { length: 200 }).notNull(),
   status: conversationStatusEnum('status').notNull().default('active'),
+  /**
+   * Persisted Copilot SDK sessionId so subsequent turns can resume the same
+   * Copilot session (preserving full SDK-side history). Null until the first
+   * assistant turn completes successfully. If the SDK can no longer resume
+   * (session expired / pod-local cache wiped), we fall back to creating a new
+   * session and replace this id.
+   */
+  copilotSessionId: varchar('copilot_session_id', { length: 255 }),
+  copilotSessionModel: varchar('copilot_session_model', { length: 100 }),
+  copilotSessionUpdatedAt: timestamp('copilot_session_updated_at', { withTimezone: true }),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -553,13 +567,16 @@ export const agentMemories = pgTable(
   }),
 );
 
-// ─── Models (workspace-managed model registry with credit costs) ─────
+// ─── Models (user-managed model registry with credit costs) ─────────
+// As of v1.37.0 models are user-scoped: each user owns their own list of
+// active/custom models. The previous `workspace_id` column is replaced with
+// `user_id`. Conversation + workflow lookups now use the executing user's id.
 
 export const models = pgTable('models', {
   id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id')
+  userId: uuid('user_id')
     .notNull()
-    .references(() => workspaces.id, { onDelete: 'cascade' }),
+    .references(() => users.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 100 }).notNull(),
   provider: varchar('provider', { length: 50 }).notNull().default('github'),
   providerType: modelProviderTypeEnum('provider_type').notNull().default('github'),
@@ -571,6 +588,23 @@ export const models = pgTable('models', {
   description: text('description'),
   creditCost: decimal('credit_cost', { precision: 10, scale: 2 }).notNull().default('1.00'),
   isActive: boolean('is_active').notNull().default(true),
+  // ── Catalog metadata (populated when synced from GitHub Models /catalog/models) ──
+  catalogSource: modelCatalogSourceEnum('catalog_source').notNull().default('custom'),
+  catalogModelId: text('catalog_model_id'), // e.g. "openai/gpt-4o-mini" — stable identifier from upstream
+  displayName: text('display_name'),
+  publisher: text('publisher'),
+  summary: text('summary'),
+  rateLimitTier: text('rate_limit_tier'), // 'low' | 'high' as returned by GitHub Models catalog
+  tags: text('tags').array(), // multipurpose, multilingual, multimodal, etc.
+  capabilities: text('capabilities').array(), // streaming, tool-calling, agents, etc.
+  maxInputTokens: integer('max_input_tokens'),
+  maxOutputTokens: integer('max_output_tokens'),
+  htmlUrl: text('html_url'), // marketplace link
+  modelVersion: text('model_version'), // catalog `version` field (e.g. "2025-04-14")
+  // Per-model whitelist of reasoning-effort values; e.g. gpt-5-mini -> ['low','medium','high']
+  // Empty array means "no reasoning effort selector should be shown".
+  supportedReasoningEfforts: text('supported_reasoning_efforts').array().notNull().default(sql`ARRAY['low','medium','high']::text[]`),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -704,6 +738,73 @@ export const authProviders = pgTable(
   (table) => ({
     authProviderWsIdx: index('auth_providers_ws_idx').on(table.workspaceId),
     authProviderWsTypeIdx: uniqueIndex('auth_providers_ws_type_name_idx').on(table.workspaceId, table.providerType, table.name),
+  }),
+);
+
+// ─── User Groups (workspace-scoped collections of users) ─────────────
+//
+// Groups are organizational only. They do not grant roles by themselves —
+// the canonical role lives on `users.role`. Admins use groups to bulk-edit
+// roles or to scope sharing logic in future features.
+
+export const userGroups = pgTable(
+  'user_groups',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 100 }).notNull(),
+    description: text('description'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userGroupsWsIdx: index('user_groups_ws_idx').on(table.workspaceId),
+    userGroupsWsNameIdx: uniqueIndex('user_groups_ws_name_idx').on(table.workspaceId, table.name),
+  }),
+);
+
+export const userGroupMembers = pgTable(
+  'user_group_members',
+  {
+    groupId: uuid('group_id').notNull().references(() => userGroups.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.groupId, table.userId] }),
+    userGroupMembersUserIdx: index('user_group_members_user_idx').on(table.userId),
+  }),
+);
+
+// ─── AD Group → Role Mappings ────────────────────────────────────────
+//
+// On LDAP login, the user's `memberOf` attribute is read; if any DN matches
+// an `adGroupDn` here, the corresponding role is applied JIT (only for new
+// users on auto-provision; existing users keep their role unless an admin
+// changes it). When multiple mappings match, the highest-power role wins
+// (super_admin > workspace_admin > creator_user > view_user).
+
+export const adGroupMappings = pgTable(
+  'ad_group_mappings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    authProviderId: uuid('auth_provider_id')
+      .notNull()
+      .references(() => authProviders.id, { onDelete: 'cascade' }),
+    adGroupDn: varchar('ad_group_dn', { length: 500 }).notNull(),
+    role: userRoleEnum('role').notNull(),
+    description: text('description'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    adGroupMappingsWsIdx: index('ad_group_mappings_ws_idx').on(table.workspaceId),
+    adGroupMappingsProviderDnIdx: uniqueIndex('ad_group_mappings_provider_dn_idx').on(table.authProviderId, table.adGroupDn),
   }),
 );
 

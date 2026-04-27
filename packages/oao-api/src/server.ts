@@ -23,8 +23,12 @@ import eventsRouter from './routes/events.js';
 import agentFilesRouter from './routes/agent-files.js';
 import agentInstancesRouter from './routes/agent-instances.js';
 import conversationsRouter from './routes/conversations.js';
+import agentSessionsRouter from './routes/agent-sessions.js';
 import mcpServersRouter from './routes/mcp-servers.js';
 import tokensRouter, { validatePat } from './routes/tokens.js';
+import userGroupsRouter from './routes/user-groups.js';
+import adGroupMappingsRouter from './routes/ad-group-mappings.js';
+import rbacRouter from './routes/rbac.js';
 import { startRealtimeSubscriber } from './services/realtime-bus.js';
 
 const logger = createLogger('oao-api');
@@ -59,8 +63,12 @@ const app = createApp({
     ['/api/agent-files', agentFilesRouter],
     ['/api/agent-instances', agentInstancesRouter],
     ['/api/conversations', conversationsRouter],
+    ['/api/agent-sessions', agentSessionsRouter],
     ['/api/mcp-servers', mcpServersRouter],
     ['/api/tokens', tokensRouter],
+    ['/api/user-groups', userGroupsRouter],
+    ['/api/ad-group-mappings', adGroupMappingsRouter],
+    ['/api/rbac', rbacRouter],
   ],
 });
 

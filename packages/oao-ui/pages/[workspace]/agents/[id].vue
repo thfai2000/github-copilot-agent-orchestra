@@ -146,18 +146,39 @@
                 <template #content>
                   <div class="flex flex-col gap-3">
                     <div><span class="text-surface-500 text-sm">Source Type</span><p class="font-medium">{{ agent.sourceType === 'database' ? 'Database' : 'GitHub Repository' }}</p></div>
-                    <div v-if="agent.gitRepoUrl"><span class="text-surface-500 text-sm">Repository</span><p class="font-mono text-sm">{{ agent.gitRepoUrl }}</p></div>
-                    <div v-if="agent.gitBranch"><span class="text-surface-500 text-sm">Branch</span><p class="font-mono text-sm">{{ agent.gitBranch }}</p></div>
-                    <div v-if="agent.agentFilePath"><span class="text-surface-500 text-sm">Agent File</span><p class="font-mono text-sm">{{ agent.agentFilePath }}</p></div>
+                    <div v-if="agent.description"><span class="text-surface-500 text-sm">Description</span><p class="text-sm whitespace-pre-wrap">{{ agent.description }}</p></div>
+                    <template v-if="agent.sourceType !== 'database'">
+                      <div v-if="agent.gitRepoUrl"><span class="text-surface-500 text-sm">Repository</span><p class="font-mono text-sm break-all">{{ agent.gitRepoUrl }}</p></div>
+                      <div v-if="agent.gitBranch"><span class="text-surface-500 text-sm">Branch</span><p class="font-mono text-sm">{{ agent.gitBranch }}</p></div>
+                      <div v-if="agent.agentFilePath"><span class="text-surface-500 text-sm">Agent File</span><p class="font-mono text-sm">{{ agent.agentFilePath }}</p></div>
+                      <div v-if="agent.skillsDirectory"><span class="text-surface-500 text-sm">Skills Directory</span><p class="font-mono text-sm">{{ agent.skillsDirectory }}</p></div>
+                      <div>
+                        <span class="text-surface-500 text-sm">Git Auth Credential</span>
+                        <p v-if="resolvedGitCredential" class="text-sm">
+                          <NuxtLink :to="`/${ws}/variables?scope=${resolvedGitCredential.scope}&id=${resolvedGitCredential.id}`" class="text-primary hover:underline">{{ resolvedGitCredential.optionLabel }}</NuxtLink>
+                        </p>
+                        <p v-else class="text-sm text-surface-400 italic">Not configured (falls back to system default)</p>
+                      </div>
+                    </template>
                   </div>
                 </template>
               </Card>
               <Card>
                 <template #content>
                   <div class="flex flex-col gap-3">
+                    <div>
+                      <span class="text-surface-500 text-sm">GitHub Copilot Token / LLM API Key</span>
+                      <p v-if="resolvedCopilotCredential" class="text-sm">
+                        <NuxtLink :to="`/${ws}/variables?scope=${resolvedCopilotCredential.scope}&id=${resolvedCopilotCredential.id}`" class="text-primary hover:underline">{{ resolvedCopilotCredential.optionLabel }}</NuxtLink>
+                      </p>
+                      <p v-else class="text-sm text-surface-400 italic">Not configured (falls back to server default)</p>
+                    </div>
+                    <div><span class="text-surface-500 text-sm">Status</span><p class="font-medium capitalize">{{ agent.status }}</p></div>
+                    <div><span class="text-surface-500 text-sm">Scope</span><p class="font-medium capitalize">{{ agent.scope }}</p></div>
                     <div><span class="text-surface-500 text-sm">Selected Tools</span><p class="font-medium">{{ configuredToolCount }} enabled</p></div>
                     <div><span class="text-surface-500 text-sm">Last Session</span><p class="font-medium">{{ agent.lastSessionAt ? new Date(agent.lastSessionAt).toLocaleString() : 'Never' }}</p></div>
                     <div><span class="text-surface-500 text-sm">Created</span><p class="font-medium">{{ new Date(agent.createdAt).toLocaleString() }}</p></div>
+                    <div v-if="agent.updatedAt"><span class="text-surface-500 text-sm">Updated</span><p class="font-medium">{{ new Date(agent.updatedAt).toLocaleString() }}</p></div>
                   </div>
                 </template>
               </Card>
@@ -289,7 +310,7 @@ const confirm = useConfirm();
 const ws = computed(() => (route.params.workspace as string) || 'default');
 const agentId = computed(() => route.params.id as string);
 const isHistoricalVersionRoute = computed(() => Boolean(route.params.version));
-const { buildCredentialOptions, filterGitAuthCredentialOptions, filterCopilotCredentialOptions } = useAgentCredentialOptions();
+const { buildCredentialOptions, filterGitAuthCredentialOptions, filterCopilotCredentialOptions, findCredentialOption } = useAgentCredentialOptions();
 
 const activeTab = ref<string | number>('overview');
 const editing = ref(false);
@@ -407,6 +428,8 @@ const credentialOptions = computed(() => buildCredentialOptions([
 ]));
 const gitCredOptions = computed(() => filterGitAuthCredentialOptions(credentialOptions.value, editForm.githubTokenCredentialId));
 const modelAuthCredOptions = computed(() => filterCopilotCredentialOptions(credentialOptions.value, editForm.copilotTokenCredentialId));
+const resolvedCopilotCredential = computed(() => findCredentialOption(credentialOptions.value, agent.value?.copilotTokenCredentialId));
+const resolvedGitCredential = computed(() => findCredentialOption(credentialOptions.value, agent.value?.githubTokenCredentialId));
 
 // Merge variables: Agent > User > Workspace priority
 const mergedVars = computed(() => {

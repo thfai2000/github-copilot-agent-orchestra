@@ -53,17 +53,40 @@ spec:
                 sleep 5
               done
               echo "Running Drizzle schema push..."
+              # v1.37.0: models is being switched from workspace-scoped to user-scoped.
+              # Drop the table if it still has the legacy workspace_id column so drizzle-kit
+              # can recreate it cleanly without prompting for an interactive rename. This is
+              # a one-time, idempotent guard for the v1.36.x → v1.37.0 jump.
+              cd /app/packages/oao-api && node -e "
+                (async () => {
+                  const postgres = (await import('postgres')).default;
+                  const sql = postgres(process.env.AGENT_DATABASE_URL);
+                  const rows = await sql\`SELECT column_name FROM information_schema.columns WHERE table_name='models' AND column_name='workspace_id'\`;
+                  if (rows.length > 0) {
+                    console.log('Legacy models.workspace_id detected — dropping table for v1.37.0 user-scope migration');
+                    await sql\`DROP TABLE IF EXISTS models CASCADE\`;
+                  } else {
+                    console.log('models table already user-scoped or missing — no pre-migration needed');
+                  }
+                  await sql.end();
+                })().catch(e => { console.error(e); process.exit(1); });
+              "
               cd /app/packages/oao-api && npx drizzle-kit push --force
               echo "Running data migrations..."
-              node -e "
-                const { Client } = require('pg');
-                const client = new Client({ connectionString: process.env.AGENT_DATABASE_URL });
-                client.connect()
-                  .then(() => client.query(\"DELETE FROM models WHERE name = 'claude-opus-4-6'\"))
-                  .then(r => { console.log('Deleted', r.rowCount, 'claude-opus-4-6 model(s)'); })
-                  .then(() => client.query(\"UPDATE auth_providers SET name = 'Built-in Database' WHERE name = 'Email & Password' AND provider_type = 'database'\"))
-                  .then(r => { console.log('Renamed', r.rowCount, 'auth provider(s) to Built-in Database'); client.end(); })
-                  .catch(e => { console.error(e); client.end(); });
+              cd /app/packages/oao-api && node -e "
+                (async () => {
+                  const postgres = (await import('postgres')).default;
+                  const sql = postgres(process.env.AGENT_DATABASE_URL);
+                  try {
+                    const r1 = await sql\`DELETE FROM models WHERE name = 'claude-opus-4-6'\`;
+                    console.log('Deleted', r1.count, 'claude-opus-4-6 model(s)');
+                  } catch (e) { console.warn('skip claude-opus-4-6 cleanup:', e.message); }
+                  try {
+                    const r2 = await sql\`UPDATE auth_providers SET name = 'Built-in Database' WHERE name = 'Email & Password' AND provider_type = 'database'\`;
+                    console.log('Renamed', r2.count, 'auth provider(s) to Built-in Database');
+                  } catch (e) { console.warn('skip auth_providers rename:', e.message); }
+                  await sql.end();
+                })().catch(e => { console.error(e); process.exit(1); });
               "
               echo "Running database seed..."
               cd /app/packages/oao-api && npx tsx src/database/seed.ts

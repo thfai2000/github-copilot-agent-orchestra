@@ -12,6 +12,7 @@ import {
 } from '../services/agent-tool-selection.js';
 import { resolveAgentToolCatalog } from '../services/agent-tool-catalog.js';
 import { onRealtimeEvent, type RealtimeEvent } from '../services/realtime-bus.js';
+import { resolveQuestion, hasPendingQuestion } from '../services/question-registry.js';
 import { CONVERSATION_REASONING_EFFORTS, sendConversationMessage } from '../services/conversation-service.js';
 
 const conversationsRouter = new Hono();
@@ -36,6 +37,20 @@ const sendMessageSchema = z.object({
   reasoningEffort: z.enum(CONVERSATION_REASONING_EFFORTS).optional(),
   enabledToolNames: z.array(z.string().trim().min(1)).optional(),
   enabledBuiltinTools: z.array(z.enum(BUILTIN_TOOL_NAMES)).optional(),
+});
+
+const askAnswerValueSchema: z.ZodType<string | string[] | { value: string | string[]; other?: string }> = z.union([
+  z.string().max(20000),
+  z.array(z.string().max(20000)).max(50),
+  z.object({
+    value: z.union([z.string().max(20000), z.array(z.string().max(20000)).max(50)]),
+    other: z.string().max(20000).optional(),
+  }),
+]);
+
+const answerQuestionsSchema = z.object({
+  askId: z.string().uuid(),
+  answers: z.record(askAnswerValueSchema),
 });
 
 function userCanUseAgent(agent: typeof agents.$inferSelect, user: { userId: string; role: string; workspaceId?: string | null }) {
@@ -300,6 +315,18 @@ conversationsRouter.get('/:id', async (c) => {
   });
 });
 
+// DELETE /:id — delete conversation (and cascaded messages)
+conversationsRouter.delete('/:id', async (c) => {
+  const user = c.get('user');
+  const conversationId = uuidSchema.parse(c.req.param('id'));
+
+  const conversation = await loadConversationForUser(conversationId, user);
+  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
+
+  await db.delete(conversations).where(eq(conversations.id, conversationId));
+  return c.json({ ok: true });
+});
+
 conversationsRouter.get('/:id/tool-catalog', async (c) => {
   const user = c.get('user');
   if (!user.workspaceId) return c.json({ error: 'No workspace selected' }, 400);
@@ -363,9 +390,42 @@ conversationsRouter.post('/:id/messages', async (c) => {
     return c.json(result, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send conversation message.';
+    // sendConversationMessage attaches { userMessage, assistantMessage } to its
+    // thrown error so the UI can still render what the user sent (and the
+    // failed assistant turn) instead of just an opaque toast.
+    const enriched = error as { userMessage?: unknown; assistantMessage?: unknown };
     const status = message.includes('busy') ? 409 : 400;
-    return c.json({ error: message }, status);
+    return c.json(
+      {
+        error: message,
+        userMessage: enriched?.userMessage ?? null,
+        assistantMessage: enriched?.assistantMessage ?? null,
+      },
+      status,
+    );
   }
+});
+
+conversationsRouter.post('/:id/answer-questions', async (c) => {
+  const user = c.get('user');
+  if (!user.workspaceId) return c.json({ error: 'No workspace selected' }, 400);
+
+  const conversationId = uuidSchema.parse(c.req.param('id'));
+  const body = answerQuestionsSchema.parse(await c.req.json());
+
+  const conversation = await loadConversationForUser(conversationId, user);
+  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
+
+  if (!hasPendingQuestion(conversationId, body.askId)) {
+    return c.json({ error: 'No pending question matches that askId. It may have already been answered or timed out.' }, 404);
+  }
+
+  const resolved = resolveQuestion(conversationId, body.askId, body.answers);
+  if (!resolved) {
+    return c.json({ error: 'Pending question disappeared before the answer could be applied.' }, 409);
+  }
+
+  return c.json({ ok: true });
 });
 
 conversationsRouter.get('/:id/stream', async (c) => {

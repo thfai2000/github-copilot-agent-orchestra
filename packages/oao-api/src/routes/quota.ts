@@ -9,7 +9,7 @@ import {
   users,
 } from '../database/schema.js';
 import { authMiddleware } from '@oao/shared';
-import { listWorkspaceActiveModels } from '../services/workspace-models.js';
+import { listUserActiveModels } from '../services/user-models.js';
 
 const quotaRouter = new Hono();
 quotaRouter.use('/*', authMiddleware);
@@ -256,12 +256,10 @@ quotaRouter.get('/usage', async (c) => {
   });
 });
 
-// GET /models — list active models in user's workspace
+// GET /models — list active models for the current user
 quotaRouter.get('/models', async (c) => {
   const user = c.get('user');
-  if (!user.workspaceId) return c.json({ models: [] });
-
-  const allModels = await listWorkspaceActiveModels(user.workspaceId);
+  const allModels = await listUserActiveModels(user.userId);
   return c.json({ models: allModels });
 });
 

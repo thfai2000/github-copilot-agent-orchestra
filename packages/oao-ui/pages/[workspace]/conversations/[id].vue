@@ -25,6 +25,7 @@
           <NuxtLink v-if="agent?.id" :to="`/${ws}/agents/${agent.id}`">
             <Button label="View Agent" icon="pi pi-arrow-up-right" severity="secondary" />
           </NuxtLink>
+          <Button label="Delete" icon="pi pi-trash" severity="danger" outlined :disabled="deleting" @click="confirmDelete" />
         </div>
       </div>
 
@@ -92,6 +93,16 @@
                 </div>
               </div>
             </div>
+
+            <div v-if="pendingAsks.length > 0" class="mt-4 space-y-3">
+              <AgentAskQuestionsForm
+                v-for="ask in pendingAsks"
+                :key="ask.askId"
+                :ask="ask"
+                :submitting="!!askSubmitting[ask.askId]"
+                @submit="onAskSubmit"
+              />
+            </div>
           </div>
 
           <div class="border-t border-surface-200 bg-white p-4 sm:p-5">
@@ -149,10 +160,10 @@
                     <label class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-surface-500">Effort</label>
                     <Select
                       v-model="settingsForm.reasoningEffort"
-                      :options="reasoningOptions"
+                      :options="filteredReasoningOptions"
                       optionLabel="label"
                       optionValue="value"
-                      :disabled="!canAdjustTurnSettings"
+                      :disabled="!canAdjustTurnSettings || filteredReasoningOptions.length === 0"
                       showClear
                       placeholder="Model default"
                       size="small"
@@ -394,6 +405,7 @@ interface LocalConversationMessage {
 }
 
 const reasoningOptions = [
+  { label: 'Minimal', value: 'minimal' },
   { label: 'Low', value: 'low' },
   { label: 'Medium', value: 'medium' },
   { label: 'High', value: 'high' },
@@ -442,13 +454,16 @@ const builtinToolLabels: Record<string, { label: string; description: string }> 
 const { authHeaders } = useAuth();
 const headers = authHeaders();
 const route = useRoute();
+const router = useRouter();
 const toast = useToast();
+const confirm = useConfirm();
 const ws = computed(() => (route.params.workspace as string) || 'default');
 const conversationId = computed(() => route.params.id as string);
 
 const draft = ref('');
 const sending = ref(false);
 const switchingAgent = ref(false);
+const deleting = ref(false);
 const localMessages = ref<LocalConversationMessage[]>([]);
 const messagesContainerRef = ref<HTMLElement | null>(null);
 const pendingAssistantClientId = ref<string | null>(null);
@@ -503,6 +518,30 @@ const modelOptions = computed<ModelOption[]>(() => (((modelsData.value?.models ?
   provider: model.provider || null,
 }))));
 const availableModelNames = computed(() => modelOptions.value.map((model) => model.value));
+
+// Per-model reasoning-effort whitelist. Defaults to ['low','medium','high'] when
+// the model has no explicit list (back-compat with rows synced before catalog metadata).
+const supportedReasoningByModel = computed<Record<string, string[]>>(() => {
+  const out: Record<string, string[]> = {};
+  for (const m of (modelsData.value?.models ?? []) as any[]) {
+    const list = Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length > 0
+      ? (m.supportedReasoningEfforts as string[])
+      : ['low', 'medium', 'high'];
+    out[m.name] = list;
+  }
+  return out;
+});
+
+const filteredReasoningOptions = computed(() => {
+  const selected = settingsForm.model;
+  // No model picked -> fall back to the union (so dropdown still works for
+  // workspace default). When a specific model is picked, restrict to its list.
+  if (!selected) return reasoningOptions;
+  const allowed = supportedReasoningByModel.value[selected];
+  if (!allowed) return reasoningOptions;
+  if (allowed.length === 0) return [];
+  return reasoningOptions.filter((opt) => allowed.includes(opt.value));
+});
 const agentSelectionTitle = computed(() => {
   const selected = agentOptions.value.find((entry: any) => entry.id === settingsForm.agentId);
   return selected?.name || '';
@@ -613,7 +652,7 @@ async function refreshToolCatalog() {
 }
 
 watch(() => resolvedConversationPayload.value?.messages, (messages) => {
-  localMessages.value = ((messages ?? []) as any[]).map((message) => ({
+  const serverMessages = ((messages ?? []) as any[]).map((message) => ({
     id: message.id,
     role: message.role,
     status: message.status,
@@ -624,7 +663,25 @@ watch(() => resolvedConversationPayload.value?.messages, (messages) => {
     model: message.model,
     metadata: normalizeMetadata(message.metadata),
   }));
-  pendingAssistantClientId.value = null;
+
+  // Preserve optimistic messages (id starts with `tmp-`) that have NOT yet been
+  // persisted to the server. This prevents the user's just-sent message from
+  // flickering away when the watcher fires before the POST round-trip finishes.
+  const serverIds = new Set(serverMessages.map((message) => message.id));
+  const orphanOptimistic = localMessages.value.filter((message) => {
+    if (typeof message.id !== 'string' || !message.id.startsWith('tmp-')) return false;
+    if (serverIds.has(message.id)) return false;
+    // Drop optimistic if a persisted message with same role + content already exists.
+    const replacement = serverMessages.find((server) =>
+      server.role === message.role && server.content === message.content,
+    );
+    return !replacement;
+  });
+
+  localMessages.value = [...serverMessages, ...orphanOptimistic];
+  if (orphanOptimistic.every((message) => message.role !== 'assistant' || message.status !== 'pending')) {
+    pendingAssistantClientId.value = null;
+  }
   scrollToBottom(false);
 }, { immediate: true });
 
@@ -652,6 +709,19 @@ watch([() => settingsForm.model, availableModelNames], ([model, activeModels]) =
   staleModelName.value = model;
   settingsForm.model = null;
 }, { immediate: true });
+
+// Auto-clear reasoningEffort if the newly-selected model doesn't whitelist it.
+// Prevents users from sending xhigh to a model that only supports low/medium/high.
+watch([() => settingsForm.model, supportedReasoningByModel], () => {
+  const current = settingsForm.reasoningEffort;
+  if (!current) return;
+  const model = settingsForm.model;
+  if (!model) return;
+  const allowed = supportedReasoningByModel.value[model];
+  if (allowed && !allowed.includes(current)) {
+    settingsForm.reasoningEffort = null;
+  }
+});
 
 watch(() => conversation.value?.agentId, () => {
   void refreshToolCatalog();
@@ -891,6 +961,69 @@ onStreamEvent('conversation.message.failed', async (event: any) => {
   toast.add({ severity: 'error', summary: 'Conversation Failed', detail: event.data?.error || 'Failed to receive assistant response.', life: 5000 });
   await refreshConversationSafely();
   scrollToBottom();
+});
+
+interface AskQuestion {
+  id: string;
+  prompt: string;
+  type: 'single_choice' | 'multi_choice' | 'free_text';
+  options?: string[];
+  allowOther?: boolean;
+  required?: boolean;
+}
+
+interface PendingAsk {
+  askId: string;
+  introduction?: string | null;
+  questions: AskQuestion[];
+  startedAt: string;
+}
+
+const pendingAsks = ref<PendingAsk[]>([]);
+const askSubmitting = reactive<Record<string, boolean>>({});
+
+async function onAskSubmit(payload: { askId: string; answers: Record<string, unknown> }) {
+  if (askSubmitting[payload.askId]) return;
+  askSubmitting[payload.askId] = true;
+  try {
+    // Use the unified endpoint so both conversations and workflow steps share one path.
+    await $fetch('/api/agent-sessions/answer', {
+      method: 'POST',
+      headers,
+      body: {
+        contextType: 'conversation',
+        contextId: conversationId.value,
+        askId: payload.askId,
+        answers: payload.answers,
+      },
+    });
+    pendingAsks.value = pendingAsks.value.filter((entry) => entry.askId !== payload.askId);
+    delete askSubmitting[payload.askId];
+  } catch (e: any) {
+    askSubmitting[payload.askId] = false;
+    toast.add({ severity: 'error', summary: 'Answer Failed', detail: e?.data?.error || 'Failed to submit answers.', life: 5000 });
+  }
+}
+
+onStreamEvent('conversation.tool.ask_questions', (event: any) => {
+  const askId = event.data?.askId;
+  const questions = Array.isArray(event.data?.questions) ? event.data.questions : [];
+  if (!askId || questions.length === 0) return;
+  if (pendingAsks.value.some((entry) => entry.askId === askId)) return;
+  pendingAsks.value.push({
+    askId,
+    introduction: event.data?.introduction ?? null,
+    questions,
+    startedAt: event.timestamp || new Date().toISOString(),
+  });
+  scrollToBottom();
+});
+
+onStreamEvent('conversation.tool.ask_questions_resolved', (event: any) => {
+  const askId = event.data?.askId;
+  if (!askId) return;
+  pendingAsks.value = pendingAsks.value.filter((entry) => entry.askId !== askId);
+  delete askSubmitting[askId];
 });
 
 function normalizeMetadata(metadata: unknown): Record<string, any> {
@@ -1154,6 +1287,29 @@ async function sendMessage() {
   } finally {
     sending.value = false;
   }
+}
+
+function confirmDelete() {
+  if (!conversation.value) return;
+  confirm.require({
+    message: `Are you sure you want to delete this conversation? Messages will be lost.`,
+    header: 'Confirm Delete',
+    icon: 'pi pi-exclamation-triangle',
+    rejectProps: { label: 'Cancel', severity: 'secondary' },
+    acceptProps: { label: 'Delete', severity: 'danger' },
+    accept: async () => {
+      deleting.value = true;
+      try {
+        await $fetch(`/api/conversations/${conversationId.value}`, { method: 'DELETE', headers });
+        toast.add({ severity: 'success', summary: 'Deleted', detail: 'Conversation removed', life: 3000 });
+        await router.push(`/${ws.value}/conversations`);
+      } catch (error: any) {
+        toast.add({ severity: 'error', summary: 'Delete Failed', detail: error?.data?.error || error?.message || 'Unknown error', life: 5000 });
+      } finally {
+        deleting.value = false;
+      }
+    },
+  });
 }
 </script>
 

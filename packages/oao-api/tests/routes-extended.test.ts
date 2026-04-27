@@ -1075,20 +1075,20 @@ describe('Admin routes — user management', () => {
   });
 });
 
-describe('Admin routes — model management', () => {
-  it('GET /api/admin/models returns workspace models', async () => {
+describe('Model routes — user-scoped (v1.37.0)', () => {
+  it('GET /api/models/all returns user models', async () => {
     const token = await getToken('workspace_admin');
     mockFindMany.mockResolvedValueOnce([
       { id: TEST_MODEL_ID, name: 'gpt-4.1', provider: 'github' },
     ]);
 
-    const res = await app.request('/api/admin/models', { headers: authHeaders(token) });
+    const res = await app.request('/api/models/all', { headers: authHeaders(token) });
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.models).toBeDefined();
   });
 
-  it('POST /api/admin/models creates model', async () => {
+  it('POST /api/models creates model', async () => {
     const token = await getToken('workspace_admin');
     mockInsertReturning.mockResolvedValueOnce([{
       id: TEST_MODEL_ID,
@@ -1097,7 +1097,7 @@ describe('Admin routes — model management', () => {
       creditCost: '2.00',
     }]);
 
-    const res = await app.request('/api/admin/models', {
+    const res = await app.request('/api/models', {
       method: 'POST',
       headers: authHeaders(token),
       body: JSON.stringify({ name: 'gpt-5', creditCost: '2.00' }),
@@ -1105,7 +1105,7 @@ describe('Admin routes — model management', () => {
     expect(res.status).toBe(201);
   });
 
-  it('POST /api/admin/models creates custom provider model with full provider fields', async () => {
+  it('POST /api/models creates custom provider model with full provider fields', async () => {
     const token = await getToken('workspace_admin');
     mockInsertReturning.mockResolvedValueOnce([{
       id: TEST_MODEL_ID,
@@ -1121,7 +1121,7 @@ describe('Admin routes — model management', () => {
       isActive: true,
     }]);
 
-    const res = await app.request('/api/admin/models', {
+    const res = await app.request('/api/models', {
       method: 'POST',
       headers: authHeaders(token),
       body: JSON.stringify({
@@ -1148,20 +1148,20 @@ describe('Admin routes — model management', () => {
     }));
   });
 
-  it('PUT /api/admin/models/:id updates model', async () => {
+  it('PUT /api/models/:id updates model', async () => {
     const token = await getToken('workspace_admin');
-    // findFirst: existing model in same workspace
+    // findFirst: existing model owned by current user
     mockFindFirst.mockResolvedValueOnce({
       id: TEST_MODEL_ID,
       name: 'gpt-4.1',
-      workspaceId: TEST_WORKSPACE_ID,
+      userId: TEST_UUID,
     });
     mockUpdateReturning.mockResolvedValueOnce([{
       id: TEST_MODEL_ID,
       name: 'gpt-4.1-turbo',
     }]);
 
-    const res = await app.request(`/api/admin/models/${TEST_MODEL_ID}`, {
+    const res = await app.request(`/api/models/${TEST_MODEL_ID}`, {
       method: 'PUT',
       headers: authHeaders(token),
       body: JSON.stringify({ name: 'gpt-4.1-turbo' }),
@@ -1169,15 +1169,15 @@ describe('Admin routes — model management', () => {
     expect(res.status).toBe(200);
   });
 
-  it('PUT /api/admin/models/:id rejects cross-workspace', async () => {
+  it('PUT /api/models/:id rejects cross-user', async () => {
     const token = await getToken('workspace_admin');
-    // findFirst: model in different workspace
+    // findFirst: model owned by a different user
     mockFindFirst.mockResolvedValueOnce({
       id: TEST_MODEL_ID,
-      workspaceId: 'other-workspace',
+      userId: 'other-user-id',
     });
 
-    const res = await app.request(`/api/admin/models/${TEST_MODEL_ID}`, {
+    const res = await app.request(`/api/models/${TEST_MODEL_ID}`, {
       method: 'PUT',
       headers: authHeaders(token),
       body: JSON.stringify({ name: 'hacked' }),
@@ -1185,19 +1185,19 @@ describe('Admin routes — model management', () => {
     expect(res.status).toBe(403);
   });
 
-  it('PUT /api/admin/models/:id rejects incomplete custom provider updates against existing state', async () => {
+  it('PUT /api/models/:id rejects incomplete custom provider updates against existing state', async () => {
     const token = await getToken('workspace_admin');
     mockFindFirst.mockResolvedValueOnce({
       id: TEST_MODEL_ID,
       name: 'gpt-4.1',
-      workspaceId: TEST_WORKSPACE_ID,
+      userId: TEST_UUID,
       providerType: 'github',
       customProviderType: null,
       customBaseUrl: null,
       customAzureApiVersion: null,
     });
 
-    const res = await app.request(`/api/admin/models/${TEST_MODEL_ID}`, {
+    const res = await app.request(`/api/models/${TEST_MODEL_ID}`, {
       method: 'PUT',
       headers: authHeaders(token),
       body: JSON.stringify({
@@ -1212,26 +1212,26 @@ describe('Admin routes — model management', () => {
     expect(json.error).toMatch(/azure api version/i);
   });
 
-  it('DELETE /api/admin/models/:id deletes model', async () => {
+  it('DELETE /api/models/:id deletes model', async () => {
     const token = await getToken('workspace_admin');
-    // findFirst: model exists in same workspace
+    // findFirst: model exists owned by current user
     mockFindFirst.mockResolvedValueOnce({
       id: TEST_MODEL_ID,
-      workspaceId: TEST_WORKSPACE_ID,
+      userId: TEST_UUID,
     });
 
-    const res = await app.request(`/api/admin/models/${TEST_MODEL_ID}`, {
+    const res = await app.request(`/api/models/${TEST_MODEL_ID}`, {
       method: 'DELETE',
       headers: authHeaders(token),
     });
     expect(res.status).toBe(200);
   });
 
-  it('DELETE /api/admin/models/:id returns 404 when not found', async () => {
+  it('DELETE /api/models/:id returns 404 when not found', async () => {
     const token = await getToken('workspace_admin');
     // findFirst: null (default) — model not found
 
-    const res = await app.request(`/api/admin/models/${TEST_MODEL_ID}`, {
+    const res = await app.request(`/api/models/${TEST_MODEL_ID}`, {
       method: 'DELETE',
       headers: authHeaders(token),
     });

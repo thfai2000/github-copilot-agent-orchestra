@@ -470,7 +470,7 @@ const wfExecutions = computed(() => (execsData.value as any)?.executions ?? []);
 const { data: agentsData } = await useFetch('/api/agents', { headers });
 const agentOptions = computed(() => (agentsData.value as any)?.agents ?? []);
 
-const { data: modelsData } = await useFetch('/api/admin/models', { headers });
+const { data: modelsData } = await useFetch('/api/models/all', { headers });
 const modelOptions = computed(() => (modelsData.value as any)?.models ?? []);
 
 const webhookTrigger = computed(() => triggers.value.find((t: any) => t.triggerType === 'webhook'));

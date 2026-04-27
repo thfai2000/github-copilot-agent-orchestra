@@ -29,32 +29,11 @@ async function seed() {
     logger.info('Default workspace already exists, skipping');
   }
 
-  // Seed default models. All four are served via GitHub Copilot SDK (providerType 'github'),
-  // including Anthropic-named ones — they are still routed through Copilot. creditCost values
-  // are taken from the workspace pricing table.
+  // Seed default models for the superadmin user. All four are served via GitHub Copilot SDK
+  // (providerType 'github'), including Anthropic-named ones — they are still routed through
+  // Copilot. creditCost values are taken from the platform pricing table.
+  // NOTE: As of v1.37.0 models are user-scoped, not workspace-scoped.
   const resolvedWsId = workspaceId ?? (await db.query.workspaces.findFirst({ where: (w, { eq }) => eq(w.slug, 'default') }))?.id;
-  if (resolvedWsId) {
-    const defaultModels = [
-      { name: 'claude-sonnet-4-6', provider: 'github', description: 'Claude Sonnet 4.6 via GitHub Copilot — balanced model', creditCost: '1.00' },
-      { name: 'gpt-5.4',           provider: 'github', description: 'GPT-5.4 via GitHub Copilot — advanced reasoning model', creditCost: '1.00' },
-      { name: 'gpt-5.4-mini',      provider: 'github', description: 'GPT-5.4 Mini via GitHub Copilot — balanced speed and capability', creditCost: '0.33' },
-      { name: 'gpt-5-mini',        provider: 'github', description: 'GPT-5 Mini via GitHub Copilot — fast and free of charge', creditCost: '0.00' },
-    ];
-    for (const m of defaultModels) {
-      // Manual upsert — there is no unique (workspaceId, name) constraint, so look up first.
-      const existing = await db.query.models.findFirst({
-        where: (mt, { and: andFn, eq }) => andFn(eq(mt.workspaceId, resolvedWsId), eq(mt.name, m.name)),
-      });
-      if (existing) {
-        await db.update(models)
-          .set({ provider: m.provider, description: m.description, creditCost: m.creditCost, updatedAt: new Date() })
-          .where(eq(models.id, existing.id));
-      } else {
-        await db.insert(models).values({ workspaceId: resolvedWsId, ...m });
-      }
-    }
-    logger.info(`Seeded ${defaultModels.length} default models (idempotent upsert)`);
-  }
 
   // Create or optionally reset superadmin user.
   const superAdminEmail = process.env.SUPERADMIN_EMAIL?.trim() || 'admin@oao.local';
@@ -123,6 +102,30 @@ async function seed() {
     } else {
       logger.info('Database auth provider already exists, skipping');
     }
+  }
+
+  // Seed default models for the superadmin user (idempotent).
+  const superAdminUser = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.role, 'super_admin') });
+  if (superAdminUser) {
+    const defaultModels = [
+      { name: 'claude-sonnet-4-6', provider: 'github', description: 'Claude Sonnet 4.6 via GitHub Copilot — balanced model', creditCost: '1.00' },
+      { name: 'gpt-5.4',           provider: 'github', description: 'GPT-5.4 via GitHub Copilot — advanced reasoning model', creditCost: '1.00' },
+      { name: 'gpt-5.4-mini',      provider: 'github', description: 'GPT-5.4 Mini via GitHub Copilot — balanced speed and capability', creditCost: '0.33' },
+      { name: 'gpt-5-mini',        provider: 'github', description: 'GPT-5 Mini via GitHub Copilot — fast and free of charge', creditCost: '0.00' },
+    ];
+    for (const m of defaultModels) {
+      const existing = await db.query.models.findFirst({
+        where: (mt, { and: andFn, eq }) => andFn(eq(mt.userId, superAdminUser.id), eq(mt.name, m.name)),
+      });
+      if (existing) {
+        await db.update(models)
+          .set({ provider: m.provider, description: m.description, creditCost: m.creditCost, updatedAt: new Date() })
+          .where(eq(models.id, existing.id));
+      } else {
+        await db.insert(models).values({ userId: superAdminUser.id, ...m });
+      }
+    }
+    logger.info(`Seeded ${defaultModels.length} default models for superadmin (idempotent upsert)`);
   }
 
   // Create a sample agent (idempotent — skip if any agent already exists)

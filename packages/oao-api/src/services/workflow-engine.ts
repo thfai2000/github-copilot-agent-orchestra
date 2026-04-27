@@ -23,7 +23,7 @@ import { createAgentTools } from './agent-tools.js';
 import { resolveAgentToolSelection } from './agent-tool-selection.js';
 import { renderTemplate, buildTemplateContext } from './jinja-renderer.js';
 import { loadConfiguredMcpTools } from './platform-mcp.js';
-import { resolveWorkspaceModelSession } from './workspace-models.js';
+import { resolveUserModelSession } from './user-models.js';
 import { checkLlmCreditQuota, type BlockedQuotaCheck } from './quota-enforcement.js';
 
 import {
@@ -36,6 +36,7 @@ import {
 import { registerEphemeralInstance, terminateEphemeralInstance } from './agent-instance-registry.js';
 import { AGENT_STEP_QUEUE } from '../workers/agent-worker.js';
 import { publishRealtimeEvent } from './realtime-bus.js';
+import { publishAgentSessionEvent, workflowStepScope } from './agent-session-events.js';
 
 const logger = createLogger('workflow-engine');
 
@@ -1371,6 +1372,7 @@ export async function executeCopilotSession(params: {
       agentId: agent.id,
       workflowId,
       executionId,
+      stepExecutionId,
       userId: agent.userId,
       workspaceId,
     }, agentToolSelection.selectedBuiltinToolNames, templateContext);
@@ -1392,41 +1394,47 @@ export async function executeCopilotSession(params: {
     const tools = [...builtInTools, ...mcpTools];
 
     // 4. Initialize Copilot client + session
-    const resolvedModelSession = await resolveWorkspaceModelSession({
-      workspaceId,
+    const resolvedModelSession = await resolveUserModelSession({
+      userId,
       requestedModel: step.model ?? workflowDefaultModel,
       envDefaultModel: process.env.DEFAULT_AGENT_MODEL,
       authToken: copilotTokenOverride ?? process.env.DEFAULT_LLM_API_KEY ?? process.env.GITHUB_TOKEN ?? null,
     });
 
-    // Pre-flight auth check — fail fast with an actionable message instead of letting the
-    // Copilot SDK throw the opaque "Session was not created with authentication info or
-    // custom provider" error from runAgenticLoop on first prompt.
-    if (!resolvedModelSession.provider) {
-      const fallbackToken = process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN || '';
-      const hasOverride = typeof copilotTokenOverride === 'string' && copilotTokenOverride.length > 0;
-      if (!hasOverride && !fallbackToken) {
-        logger.error({
-          agentId: agent.id,
-          agentName: agent.name,
-          model: resolvedModelSession.modelName,
-          providerType: 'github',
-          hasCopilotTokenOverride: hasOverride,
-          hasDefaultLlmApiKey: !!process.env.DEFAULT_LLM_API_KEY,
-          hasGithubTokenEnv: !!process.env.GITHUB_TOKEN,
-          copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
-        }, 'No Copilot/LLM auth source resolved for workflow step');
-        throw new Error(
-          `No Copilot / LLM authentication is available for model "${resolvedModelSession.modelName}". ` +
-          `Configure a GitHub Copilot Token / LLM API Key credential on agent "${agent.name}" ` +
-          `(or set DEFAULT_LLM_API_KEY / GITHUB_TOKEN on the OAO server).`,
-        );
-      }
+    // ── Auth source resolution for Copilot SDK ──────────────────────────────
+    const isGithubProvider = !resolvedModelSession.provider;
+    const fallbackEnvToken = process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN || '';
+    const hasAgentOverride = typeof copilotTokenOverride === 'string' && copilotTokenOverride.length > 0;
+    const githubTokenForClient = hasAgentOverride
+      ? copilotTokenOverride!
+      : (fallbackEnvToken || '');
+    const authSource = hasAgentOverride
+      ? 'agent_credential'
+      : (process.env.DEFAULT_LLM_API_KEY ? 'env_default_llm_api_key' : (process.env.GITHUB_TOKEN ? 'env_github_token' : 'none'));
+
+    logger.info({
+      agentId: agent.id,
+      agentName: agent.name,
+      model: resolvedModelSession.modelName,
+      providerType: isGithubProvider ? 'github' : `custom:${resolvedModelSession.modelRecord.customProviderType}`,
+      copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
+      hasAgentOverride,
+      hasFallbackEnvToken: !!fallbackEnvToken,
+      authSource,
+      tokenLength: githubTokenForClient.length,
+    }, 'Resolving Copilot SDK auth for workflow step');
+
+    if (isGithubProvider && !githubTokenForClient) {
+      throw new Error(
+        `No Copilot / LLM authentication is available for model "${resolvedModelSession.modelName}". ` +
+        `Configure a GitHub Copilot Token / LLM API Key credential on agent "${agent.name}" ` +
+        `(or set DEFAULT_LLM_API_KEY / GITHUB_TOKEN on the OAO server).`,
+      );
     }
 
-    const client = resolvedModelSession.provider
-      ? new CopilotClient()
-      : new CopilotClient(copilotTokenOverride ? { githubToken: copilotTokenOverride } : (process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN ? { githubToken: (process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN)! } : undefined));
+    const client = isGithubProvider
+      ? new CopilotClient({ githubToken: githubTokenForClient })
+      : new CopilotClient();
     const model = resolvedModelSession.modelName;
 
     const sessionOptions: Record<string, unknown> = {
@@ -1457,7 +1465,48 @@ export async function executeCopilotSession(params: {
       (sessionOptions as Record<string, unknown>).reasoningEffort = resolvedReasoning;
     }
 
-    const session = await client.createSession(sessionOptions as unknown as Parameters<typeof client.createSession>[0]);
+    let session: Awaited<ReturnType<typeof client.createSession>>;
+    try {
+      session = await client.createSession(sessionOptions as unknown as Parameters<typeof client.createSession>[0]);
+    } catch (sessionError) {
+      const err = sessionError as { name?: string; message?: string; code?: unknown; stack?: string; cause?: unknown };
+      logger.error({
+        agentId: agent.id,
+        agentName: agent.name,
+        model,
+        providerType: isGithubProvider ? 'github' : `custom:${resolvedModelSession.modelRecord.customProviderType}`,
+        copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
+        authSource,
+        tokenLength: githubTokenForClient.length,
+        errorName: err?.name,
+        errorMessage: err?.message,
+        errorCode: err?.code,
+        errorStack: err?.stack,
+        errorCause: err?.cause ? String(err.cause) : undefined,
+      }, 'client.createSession() threw (workflow step)');
+      throw new Error(
+        `Failed to create Copilot session for agent "${agent.name}" (model "${model}", ` +
+        `auth source "${authSource}", credential id ${agent.copilotTokenCredentialId ?? 'n/a'}): ` +
+        `${err?.name ?? 'Error'}: ${err?.message ?? String(sessionError)}`,
+        { cause: sessionError },
+      );
+    }
+
+    // Soft auth-status logging (informational only — see conversation-service for rationale).
+    if (isGithubProvider) {
+      try {
+        const authStatus = await (client as unknown as { getAuthStatus(): Promise<{ authenticated: boolean; authType?: string; user?: { login?: string } }> }).getAuthStatus();
+        logger.info({
+          agentId: agent.id,
+          model,
+          authenticated: authStatus?.authenticated,
+          authType: authStatus?.authType,
+          githubLogin: authStatus?.user?.login,
+        }, 'Copilot CLI auth status (informational)');
+      } catch (authStatusError) {
+        logger.warn({ agentId: agent.id, error: (authStatusError as Error)?.message }, 'getAuthStatus check skipped');
+      }
+    }
 
     // 5. Track tool calls for reasoning trace AND live output events
     const liveEvents: LiveOutputEvent[] = [];
@@ -1480,31 +1529,126 @@ export async function executeCopilotSession(params: {
       }, 2000);
     }
 
+    // Build agent.* event scope for the unified streaming UI.
+    const agentScope = stepExecutionId
+      ? workflowStepScope({
+          stepExecutionId,
+          workflowExecutionId: executionId,
+          workflowId,
+          workspaceId,
+          stepOrder: step.stepOrder,
+        })
+      : null;
+
     session.on('tool.execution_start', (event) => {
       const toolName = event.data?.toolName ?? 'unknown';
       toolCalls.push({ tool: toolName, args: event.data?.arguments });
       pushLiveEvent({ type: 'tool_call_start', timestamp: new Date().toISOString(), tool: toolName, args: event.data?.arguments });
+      if (agentScope) {
+        void publishAgentSessionEvent(agentScope, 'tool.execution_start', {
+          toolName,
+          toolCallId: event.data?.toolCallId,
+          arguments: event.data?.arguments,
+        });
+      }
     });
 
     session.on('tool.execution_complete', (event) => {
       pushLiveEvent({ type: 'tool_call_end', timestamp: new Date().toISOString(), tool: event.data?.toolCallId ?? 'unknown', result: event.data?.success });
+      if (agentScope) {
+        void publishAgentSessionEvent(agentScope, 'tool.execution_complete', {
+          toolCallId: event.data?.toolCallId,
+          success: event.data?.success,
+        });
+      }
     });
 
     session.on('assistant.message_delta', (event) => {
-      pushLiveEvent({ type: 'message_delta', timestamp: new Date().toISOString(), content: event.data?.deltaContent ?? '' });
+      const delta = event.data?.deltaContent ?? '';
+      pushLiveEvent({ type: 'message_delta', timestamp: new Date().toISOString(), content: delta });
+      if (agentScope && delta) {
+        void publishAgentSessionEvent(agentScope, 'message.delta', { delta });
+      }
     });
+
+    // SDK reasoning events: forward into agent.* stream so the shared UI can render them.
+    (session as unknown as { on(name: string, cb: (e: { data?: { delta?: string; deltaContent?: string; reasoning?: string } }) => void): void }).on(
+      'assistant.reasoning_delta',
+      (event) => {
+        const reasoning = event.data?.delta ?? event.data?.deltaContent ?? event.data?.reasoning ?? '';
+        if (agentScope && reasoning) {
+          void publishAgentSessionEvent(agentScope, 'message.reasoning_delta', { delta: reasoning });
+        }
+      },
+    );
 
     session.on('assistant.turn_start', () => {
       pushLiveEvent({ type: 'turn_start', timestamp: new Date().toISOString() });
+      if (agentScope) {
+        void publishAgentSessionEvent(agentScope, 'turn.started', {});
+        void publishAgentSessionEvent(agentScope, 'message.started', {});
+      }
     });
 
     session.on('assistant.turn_end', () => {
       pushLiveEvent({ type: 'turn_end', timestamp: new Date().toISOString() });
+      if (agentScope) {
+        void publishAgentSessionEvent(agentScope, 'turn.completed', {});
+      }
     });
 
-    // 6. Send prompt and wait for response
-    const timeoutMs = (step.timeoutSeconds ?? 300) * 1000;
-    const response = await session.sendAndWait({ prompt: resolvedPrompt }, timeoutMs);
+    // 6. Send prompt and wait for response.
+    // If ask_questions is enabled for this agent, give the session enough headroom
+    // to wait for the user (ask_questions has its own per-call timeout up to 3600s).
+    const baseTimeoutMs = (step.timeoutSeconds ?? 300) * 1000;
+    const askQuestionsEnabled = agentToolSelection.selectedBuiltinToolNames.includes('ask_questions');
+    const timeoutMs = askQuestionsEnabled
+      ? Math.max(baseTimeoutMs, 60 * 60 * 1000) // 1 hour minimum when interactive
+      : baseTimeoutMs;
+    let response;
+    try {
+      response = await session.sendAndWait({ prompt: resolvedPrompt }, timeoutMs);
+    } catch (sendError) {
+      const err = sendError as { name?: string; message?: string; code?: unknown; stack?: string; cause?: unknown };
+      logger.error({
+        agentId: agent.id,
+        agentName: agent.name,
+        model,
+        providerType: isGithubProvider ? 'github' : `custom:${resolvedModelSession.modelRecord.customProviderType}`,
+        copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
+        authSource,
+        tokenLength: githubTokenForClient.length,
+        reasoningEffort: resolvedReasoning,
+        errorName: err?.name,
+        errorMessage: err?.message,
+        errorCode: err?.code,
+        errorStack: err?.stack,
+        errorCause: err?.cause ? String(err.cause) : undefined,
+      }, 'session.sendAndWait() threw (workflow step)');
+      try { await session.disconnect(); } catch { /* ignore */ }
+      try { await client.stop(); } catch { /* ignore */ }
+      const detailHints: string[] = [];
+      const lowerMessage = (err?.message ?? '').toLowerCase();
+      if (lowerMessage.includes('not created with authentication')) {
+        detailHints.push(
+          `Verify the GitHub Copilot Token credential (id: ${agent.copilotTokenCredentialId ?? 'n/a'}) ` +
+          `is a non-expired token with Copilot access, or set DEFAULT_LLM_API_KEY / GITHUB_TOKEN on the server.`,
+        );
+      }
+      if (lowerMessage.includes('reasoning') || lowerMessage.includes('effort')) {
+        detailHints.push(
+          `The model "${model}" may not accept reasoning_effort="${resolvedReasoning}". ` +
+          `Update the model's supported reasoning efforts in Admin > Models.`,
+        );
+      }
+      throw new Error(
+        `Copilot session failed for agent "${agent.name}" (model "${model}", ` +
+        `reasoning ${resolvedReasoning ?? 'unset'}, auth source "${authSource}"): ` +
+        `${err?.name ?? 'Error'}: ${err?.message ?? String(sendError)}` +
+        (detailHints.length ? ` — ${detailHints.join(' ')}` : ''),
+        { cause: sendError },
+      );
+    }
 
     const output = response?.data?.content ?? '[No response from Copilot session]';
 
@@ -1546,9 +1690,9 @@ export async function executeCopilotSession(params: {
     try {
       const today = new Date().toISOString().split('T')[0];
       // Look up model's credit cost from the models table (scoped to workspace)
-      const modelRecord = workspaceId
+      const modelRecord = userId
         ? await db.query.models.findFirst({
-            where: and(eq(models.name, model), eq(models.workspaceId, workspaceId)),
+            where: and(eq(models.name, model), eq(models.userId, userId)),
           })
         : null;
       const cost = modelRecord ? modelRecord.creditCost : '1.00';

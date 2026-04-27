@@ -46,6 +46,32 @@ The tool selector uses the same grouped catalog model as the agent editor:
 - Workflow-specific tools such as workflow editing and self-scheduling are intentionally excluded from conversation sessions because there is no workflow execution context.
 - The same per-agent session lock used by workflow steps also applies to conversations, so an agent cannot run conflicting Copilot sessions at the same time.
 
+## Per-Session Auto-Approval
+
+Each assistant response is its own Copilot SDK session. OAO creates the session with `onPermissionRequest: approveAll`, which means every tool call the agent makes during that session is automatically approved without prompting the user. This applies to both built-in tools (e.g. `read_variables`, `simple_http_request`) and any MCP-provided tools enabled for the conversation.
+
+If the agent needs to ask the user for input mid-session (rather than for tool permission), it should call the **`ask_questions`** built-in tool — see below.
+
+## Asking the User Questions Mid-Session — `ask_questions`
+
+The `ask_questions` built-in tool lets an agent pause its current Copilot session, present the user with a structured form, and resume once the user answers.
+
+- **Question types** — `single_choice`, `multi_choice`, and `free_text` are supported.
+- **Choice questions** can set `allowOther: true` to render an "Other" option that reveals a free-text input alongside the chosen value.
+- **`required: false`** lets a free-text question be skipped.
+- **`introduction`** is shown above the form to give the user context.
+- **`timeoutSeconds`** caps how long the agent waits (default 600s, max 3600s). On timeout the tool returns an error and the agent decides how to proceed.
+
+The flow:
+
+1. Agent calls `ask_questions({ questions: [...] })`.
+2. OAO emits a `conversation.tool.ask_questions` SSE event with the question payload and a unique `askId`.
+3. The conversation page renders the form below the active assistant message.
+4. When the user submits, the UI POSTs `/api/conversations/:id/answer-questions` with `{ askId, answers }`.
+5. The pending tool call resolves with `{ askId, answers }` and the agent continues its session.
+
+`ask_questions` is only available when the executing context is a conversation — workflow runs cannot invoke it.
+
 ## Persistence Model
 
 - `conversations` stores the thread header, selected agent, and timestamps.

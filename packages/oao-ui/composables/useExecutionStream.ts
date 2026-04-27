@@ -45,6 +45,14 @@ export function useExecutionStream(executionId: Ref<string>, options?: { enabled
       'execution.started', 'execution.status', 'execution.completed',
       'execution.failed', 'execution.cancelled',
       'step.started', 'step.progress', 'step.allocation_waiting', 'step.quota_waiting', 'step.completed', 'step.failed',
+      // Step-level granular tool events (interactive ask_questions inside a workflow step).
+      'step.tool.ask_questions', 'step.tool.ask_questions_resolved',
+      // Unified agent.* family — same payload, namespace-agnostic.
+      'agent.turn.started', 'agent.turn.completed',
+      'agent.message.started', 'agent.message.delta', 'agent.message.reasoning_delta',
+      'agent.message.completed', 'agent.message.failed',
+      'agent.tool.execution_start', 'agent.tool.execution_complete',
+      'agent.tool.ask_questions', 'agent.tool.ask_questions_resolved',
     ];
 
     for (const type of eventTypes) {

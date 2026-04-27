@@ -89,11 +89,11 @@ const TEST_CONTEXT = {
 };
 
 describe('createAgentTools', () => {
-  it('returns all 9 built-in tools when no enabledTools filter', async () => {
+  it('returns all 10 built-in tools when no enabledTools filter', async () => {
     const { createAgentTools } = await import('../src/services/agent-tools.js');
     const credentials = new Map<string, string>();
     const tools = createAgentTools(credentials, TEST_CONTEXT);
-    expect(tools.length).toBe(9);
+    expect(tools.length).toBe(10);
   });
 
   it('filters tools when enabledTools is provided', async () => {
@@ -117,7 +117,7 @@ describe('createAgentTools', () => {
     const { createAgentTools } = await import('../src/services/agent-tools.js');
     const credentials = new Map<string, string>();
     const tools = createAgentTools(credentials, TEST_CONTEXT, undefined);
-    expect(tools.length).toBe(9);
+    expect(tools.length).toBe(10);
   });
 });
 

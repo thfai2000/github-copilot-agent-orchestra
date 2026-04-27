@@ -5,7 +5,7 @@ import {
   userQuotaSettings,
   workspaceQuotaSettings,
 } from '../database/schema.js';
-import { getWorkspaceModelRecord, resolveWorkspaceActiveModelName } from './workspace-models.js';
+import { getUserModelRecord, resolveUserActiveModelName } from './user-models.js';
 
 type QuotaPeriod = 'daily' | 'weekly' | 'monthly';
 type QuotaScope = 'user' | 'workspace';
@@ -177,12 +177,12 @@ export async function checkLlmCreditQuota(params: {
     return { allowed: true, modelName: params.requestedModel || params.envDefaultModel || 'default', creditCost: '0.00' };
   }
 
-  const modelName = await resolveWorkspaceActiveModelName({
-    workspaceId: params.workspaceId,
+  const modelName = await resolveUserActiveModelName({
+    userId: params.userId,
     requestedModel: params.requestedModel,
     envDefaultModel: params.envDefaultModel,
   });
-  const modelRecord = await getWorkspaceModelRecord({ workspaceId: params.workspaceId, requestedModel: modelName });
+  const modelRecord = await getUserModelRecord({ userId: params.userId, requestedModel: modelName });
   const creditCost = Math.max(parseCredit(modelRecord?.creditCost) ?? 1, 0);
   const creditCostText = formatCredit(creditCost);
 

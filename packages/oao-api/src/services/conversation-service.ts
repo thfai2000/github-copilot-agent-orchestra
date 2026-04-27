@@ -22,8 +22,9 @@ import {
 import { buildTemplateContext } from './jinja-renderer.js';
 import { loadConfiguredMcpTools } from './platform-mcp.js';
 import { publishRealtimeEvent } from './realtime-bus.js';
+import { publishAgentSessionEvent, conversationScope } from './agent-session-events.js';
 import { getRedisConnection } from './redis.js';
-import { resolveWorkspaceActiveModelName, resolveWorkspaceModelSession } from './workspace-models.js';
+import { resolveUserActiveModelName, resolveUserModelSession } from './user-models.js';
 
 const logger = createLogger('conversation-service');
 
@@ -428,6 +429,7 @@ function publishConversationLiveEvent(params: {
   event: ConversationLiveEvent;
 }): void {
   const { conversationId, assistantMessageId, workspaceId, event } = params;
+  const scope = conversationScope({ conversationId, messageId: assistantMessageId, workspaceId });
 
   switch (event.type) {
     case 'message_delta':
@@ -439,6 +441,7 @@ function publishConversationLiveEvent(params: {
         timestamp: event.timestamp,
         data: { delta: event.content ?? '' },
       });
+      void publishAgentSessionEvent(scope, 'message.delta', { delta: event.content ?? '' });
       return;
     case 'reasoning':
       publishRealtimeEvent({
@@ -451,6 +454,10 @@ function publishConversationLiveEvent(params: {
           reasoningId: event.reasoningId,
           content: event.content ?? '',
         },
+      });
+      void publishAgentSessionEvent(scope, 'message.reasoning_delta', {
+        reasoningId: event.reasoningId,
+        delta: event.content ?? '',
       });
       return;
     case 'reasoning_delta':
@@ -465,6 +472,10 @@ function publishConversationLiveEvent(params: {
           delta: event.content ?? '',
         },
       });
+      void publishAgentSessionEvent(scope, 'message.reasoning_delta', {
+        reasoningId: event.reasoningId,
+        delta: event.content ?? '',
+      });
       return;
     case 'tool_call_start':
       publishRealtimeEvent({
@@ -477,6 +488,10 @@ function publishConversationLiveEvent(params: {
           toolName: event.tool ?? 'unknown',
           arguments: event.args,
         },
+      });
+      void publishAgentSessionEvent(scope, 'tool.execution_start', {
+        toolName: event.tool ?? 'unknown',
+        arguments: event.args,
       });
       return;
     case 'tool_call_end':
@@ -492,6 +507,11 @@ function publishConversationLiveEvent(params: {
           result: event.result,
         },
       });
+      void publishAgentSessionEvent(scope, 'tool.execution_complete', {
+        toolName: event.tool ?? 'unknown',
+        success: event.success ?? false,
+        result: event.result,
+      });
       return;
     case 'turn_start':
       publishRealtimeEvent({
@@ -502,6 +522,7 @@ function publishConversationLiveEvent(params: {
         timestamp: event.timestamp,
         data: {},
       });
+      void publishAgentSessionEvent(scope, 'turn.started', {});
       return;
     case 'turn_end':
       publishRealtimeEvent({
@@ -512,6 +533,7 @@ function publishConversationLiveEvent(params: {
         timestamp: event.timestamp,
         data: {},
       });
+      void publishAgentSessionEvent(scope, 'turn.completed', {});
       return;
     default:
       return;
@@ -666,46 +688,53 @@ async function runConversationSession(params: {
 
     const allTools = [...builtInTools, ...mcpTools];
 
-    const resolvedModelSession = await resolveWorkspaceModelSession({
-      workspaceId,
+    const resolvedModelSession = await resolveUserModelSession({
+      userId,
       requestedModel: modelOverride,
       envDefaultModel: process.env.DEFAULT_AGENT_MODEL,
       authToken: copilotTokenOverride ?? process.env.DEFAULT_LLM_API_KEY ?? process.env.GITHUB_TOKEN ?? null,
     });
 
-    // Pre-flight auth check — fail fast with an actionable message instead of letting the
-    // Copilot SDK throw the opaque "Session was not created with authentication info or
-    // custom provider" runtime error during the first prompt.
-    if (!resolvedModelSession.provider) {
-      const fallbackToken = process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN || '';
-      const hasOverride = typeof copilotTokenOverride === 'string' && copilotTokenOverride.length > 0;
-      if (!hasOverride && !fallbackToken) {
-        logger.error({
-          agentId: agent.id,
-          agentName: agent.name,
-          model: resolvedModelSession.modelName,
-          providerType: 'github',
-          hasCopilotTokenOverride: hasOverride,
-          hasDefaultLlmApiKey: !!process.env.DEFAULT_LLM_API_KEY,
-          hasGithubTokenEnv: !!process.env.GITHUB_TOKEN,
-          copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
-        }, 'No Copilot/LLM auth source resolved for conversation turn');
-        throw new Error(
-          `No Copilot / LLM authentication is available for model "${resolvedModelSession.modelName}". ` +
-          `Configure a GitHub Copilot Token / LLM API Key credential on agent "${agent.name}" ` +
-          `(or set DEFAULT_LLM_API_KEY / GITHUB_TOKEN on the OAO server).`,
-        );
-      }
-      logger.info({
-        agentId: agent.id,
-        model: resolvedModelSession.modelName,
-        authSource: hasOverride ? 'agent_credential' : (process.env.DEFAULT_LLM_API_KEY ? 'env_default_llm_api_key' : 'env_github_token'),
-      }, 'Resolved Copilot SDK auth source for conversation turn');
+    // ── Auth source resolution for Copilot SDK ──────────────────────────────
+    // For GitHub-provider models: the SDK needs `githubToken` (forwarded to the
+    //   spawned `@github/copilot` CLI subprocess via the COPILOT_SDK_AUTH_TOKEN
+    //   env var). Per https://github.com/github/copilot-sdk/tree/main/nodejs.
+    // For custom-provider models: the SDK does NOT need a github token at all —
+    //   credentials live on the ProviderConfig (apiKey or bearerToken).
+    const isGithubProvider = !resolvedModelSession.provider;
+    const fallbackEnvToken = process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN || '';
+    const hasAgentOverride = typeof copilotTokenOverride === 'string' && copilotTokenOverride.length > 0;
+    const githubTokenForClient = hasAgentOverride
+      ? copilotTokenOverride!
+      : (fallbackEnvToken || '');
+    const authSource = hasAgentOverride
+      ? 'agent_credential'
+      : (process.env.DEFAULT_LLM_API_KEY ? 'env_default_llm_api_key' : (process.env.GITHUB_TOKEN ? 'env_github_token' : 'none'));
+
+    logger.info({
+      conversationId,
+      agentId: agent.id,
+      agentName: agent.name,
+      model: resolvedModelSession.modelName,
+      providerType: isGithubProvider ? 'github' : `custom:${resolvedModelSession.modelRecord.customProviderType}`,
+      copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
+      hasAgentOverride,
+      hasFallbackEnvToken: !!fallbackEnvToken,
+      authSource,
+      tokenLength: githubTokenForClient.length,
+    }, 'Resolving Copilot SDK auth for conversation turn');
+
+    if (isGithubProvider && !githubTokenForClient) {
+      throw new Error(
+        `No Copilot / LLM authentication is available for model "${resolvedModelSession.modelName}". ` +
+        `Configure a GitHub Copilot Token / LLM API Key credential on agent "${agent.name}" ` +
+        `(or set DEFAULT_LLM_API_KEY / GITHUB_TOKEN on the OAO server).`,
+      );
     }
 
-    const client = resolvedModelSession.provider
-      ? new CopilotClient()
-      : new CopilotClient(copilotTokenOverride ? { githubToken: copilotTokenOverride } : (process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN ? { githubToken: (process.env.DEFAULT_LLM_API_KEY || process.env.GITHUB_TOKEN)! } : undefined));
+    const client = isGithubProvider
+      ? new CopilotClient({ githubToken: githubTokenForClient })
+      : new CopilotClient();
     const model = resolvedModelSession.modelName;
     const sessionOptions: Record<string, unknown> = {
       model,
@@ -733,7 +762,99 @@ async function runConversationSession(params: {
       sessionOptions.reasoningEffort = reasoningEffort;
     }
 
-    const session = await client.createSession(sessionOptions as unknown as Parameters<typeof client.createSession>[0]);
+    let session!: Awaited<ReturnType<typeof client.createSession>>;
+    let resumedFromSavedSession = false;
+    let savedCopilotSessionId: string | null = null;
+    try {
+      const existing = await db.query.conversations.findFirst({
+        where: eq(conversations.id, conversationId),
+        columns: { copilotSessionId: true, copilotSessionModel: true },
+      });
+      savedCopilotSessionId = existing?.copilotSessionId ?? null;
+      if (savedCopilotSessionId && existing?.copilotSessionModel === model) {
+        try {
+          // ResumeSessionConfig accepts the same options as SessionConfig (minus a few internals).
+          session = await (client as unknown as {
+            resumeSession(id: string, cfg: unknown): Promise<typeof session>;
+          }).resumeSession(savedCopilotSessionId, sessionOptions);
+          resumedFromSavedSession = true;
+          logger.info({ conversationId, copilotSessionId: savedCopilotSessionId, model }, 'Resumed Copilot session for conversation');
+        } catch (resumeErr) {
+          logger.warn({
+            conversationId,
+            copilotSessionId: savedCopilotSessionId,
+            model,
+            error: (resumeErr as Error)?.message,
+          }, 'Failed to resume Copilot session — falling back to a fresh session');
+        }
+      }
+      if (!resumedFromSavedSession) {
+        session = await client.createSession(sessionOptions as unknown as Parameters<typeof client.createSession>[0]);
+      }
+    } catch (sessionError) {
+      const err = sessionError as { name?: string; message?: string; code?: unknown; stack?: string; cause?: unknown };
+      logger.error({
+        conversationId,
+        agentId: agent.id,
+        agentName: agent.name,
+        model,
+        providerType: isGithubProvider ? 'github' : `custom:${resolvedModelSession.modelRecord.customProviderType}`,
+        copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
+        authSource,
+        tokenLength: githubTokenForClient.length,
+        errorName: err?.name,
+        errorMessage: err?.message,
+        errorCode: err?.code,
+        errorStack: err?.stack,
+        errorCause: err?.cause ? String(err.cause) : undefined,
+      }, 'client.createSession() threw');
+      throw new Error(
+        `Failed to create Copilot session for agent "${agent.name}" (model "${model}", ` +
+        `auth source "${authSource}", credential id ${agent.copilotTokenCredentialId ?? 'n/a'}): ` +
+        `${err?.name ?? 'Error'}: ${err?.message ?? String(sessionError)}`,
+        { cause: sessionError },
+      );
+    }
+
+    // Persist the session id so subsequent turns can resume the same Copilot session.
+    try {
+      const sessionIdLike = (session as unknown as { sessionId?: string; id?: string });
+      const newSessionId = sessionIdLike.sessionId ?? sessionIdLike.id ?? null;
+      if (newSessionId && (newSessionId !== savedCopilotSessionId || !resumedFromSavedSession)) {
+        await db.update(conversations)
+          .set({
+            copilotSessionId: newSessionId,
+            copilotSessionModel: model,
+            copilotSessionUpdatedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, conversationId));
+      }
+    } catch (persistErr) {
+      logger.warn({ conversationId, error: (persistErr as Error)?.message }, 'Failed to persist copilotSessionId');
+    }
+
+    // For GitHub-provider sessions, query the CLI auth status as a soft check.
+    // We only LOG the result — never throw based on it — because some valid
+    // Copilot tokens (notably fine-grained PATs / app-installation tokens) make
+    // the SDK's `getAuthStatus()` return `authenticated: false` even though
+    // sendAndWait succeeds. The real signal is whether sendAndWait works.
+    if (isGithubProvider) {
+      try {
+        const authStatus = await (client as unknown as { getAuthStatus(): Promise<{ authenticated: boolean; authType?: string; user?: { login?: string } }> }).getAuthStatus();
+        logger.info({
+          conversationId,
+          agentId: agent.id,
+          model,
+          authenticated: authStatus?.authenticated,
+          authType: authStatus?.authType,
+          githubLogin: authStatus?.user?.login,
+        }, 'Copilot CLI auth status (informational)');
+      } catch (authStatusError) {
+        // SDK doesn't expose getAuthStatus on every version — log & continue rather than block.
+        logger.warn({ conversationId, agentId: agent.id, error: (authStatusError as Error)?.message }, 'getAuthStatus check skipped');
+      }
+    }
 
     const liveEvents: ConversationLiveEvent[] = [];
     const toolCallNames = new Map<string, string>();
@@ -841,7 +962,52 @@ async function runConversationSession(params: {
       });
     });
 
-    const response = await session.sendAndWait({ prompt }, DEFAULT_CONVERSATION_TIMEOUT_SECONDS * 1000);
+    let response;
+    try {
+      response = await session.sendAndWait({ prompt }, DEFAULT_CONVERSATION_TIMEOUT_SECONDS * 1000);
+    } catch (sendError) {
+      const err = sendError as { name?: string; message?: string; code?: unknown; stack?: string; cause?: unknown };
+      logger.error({
+        conversationId,
+        agentId: agent.id,
+        agentName: agent.name,
+        model,
+        providerType: isGithubProvider ? 'github' : `custom:${resolvedModelSession.modelRecord.customProviderType}`,
+        copilotTokenCredentialId: agent.copilotTokenCredentialId ?? null,
+        authSource,
+        tokenLength: githubTokenForClient.length,
+        reasoningEffort,
+        errorName: err?.name,
+        errorMessage: err?.message,
+        errorCode: err?.code,
+        errorStack: err?.stack,
+        errorCause: err?.cause ? String(err.cause) : undefined,
+      }, 'session.sendAndWait() threw');
+      // Cleanup before rethrowing so the lock and SDK subprocess are released.
+      try { await session.disconnect(); } catch { /* ignore */ }
+      try { await client.stop(); } catch { /* ignore */ }
+      const detailHints: string[] = [];
+      const lowerMessage = (err?.message ?? '').toLowerCase();
+      if (lowerMessage.includes('not created with authentication')) {
+        detailHints.push(
+          `Verify the GitHub Copilot Token credential (id: ${agent.copilotTokenCredentialId ?? 'n/a'}) ` +
+          `is a non-expired token with Copilot access, or set DEFAULT_LLM_API_KEY / GITHUB_TOKEN on the server.`,
+        );
+      }
+      if (lowerMessage.includes('reasoning') || lowerMessage.includes('effort')) {
+        detailHints.push(
+          `The model "${model}" may not accept reasoning_effort="${reasoningEffort}". ` +
+          `Update the model's supported reasoning efforts in Admin > Models.`,
+        );
+      }
+      throw new Error(
+        `Copilot session failed for agent "${agent.name}" (model "${model}", ` +
+        `reasoning ${reasoningEffort ?? 'unset'}, auth source "${authSource}"): ` +
+        `${err?.name ?? 'Error'}: ${err?.message ?? String(sendError)}` +
+        (detailHints.length ? ` — ${detailHints.join(' ')}` : ''),
+        { cause: sendError },
+      );
+    }
     const output = response?.data?.content ?? '[No response from Copilot session]';
 
     if (progressFlushTimer) clearInterval(progressFlushTimer);
@@ -881,9 +1047,9 @@ async function runConversationSession(params: {
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      const modelRecord = workspaceId
+      const modelRecord = userId
         ? await db.query.models.findFirst({
-            where: and(eq(models.name, model), eq(models.workspaceId, workspaceId)),
+            where: and(eq(models.name, model), eq(models.userId, userId)),
           })
         : null;
       const cost = modelRecord ? modelRecord.creditCost : '1.00';
@@ -990,12 +1156,31 @@ export async function sendConversationMessage(params: {
     throw new Error(`Agent ${agent.name} is not active. Activate it before continuing the conversation.`);
   }
 
-  const resolvedModel = await resolveWorkspaceActiveModelName({
-    workspaceId,
+  const resolvedModel = await resolveUserActiveModelName({
+    userId,
     requestedModel,
     envDefaultModel: process.env.DEFAULT_AGENT_MODEL,
   });
   const resolvedReasoningEffort = reasoningEffort ?? null;
+
+  // Validate the requested reasoning effort against the model's whitelist so we
+  // surface a 400 with a clear hint BEFORE creating a Copilot session that the
+  // model would reject. Empty/unset whitelist falls back to the legacy options.
+  if (resolvedReasoningEffort) {
+    const modelRecord = await db.query.models.findFirst({
+      where: and(eq(models.userId, userId), eq(models.name, resolvedModel)),
+    });
+    const allowed = (modelRecord?.supportedReasoningEfforts && modelRecord.supportedReasoningEfforts.length > 0)
+      ? modelRecord.supportedReasoningEfforts
+      : ['low', 'medium', 'high'];
+    if (!allowed.includes(resolvedReasoningEffort)) {
+      throw new Error(
+        `Model "${resolvedModel}" does not support reasoning_effort="${resolvedReasoningEffort}". ` +
+        `Supported values: ${allowed.join(', ')}.`,
+      );
+    }
+  }
+
   const resolvedToolSelection = resolveConversationTurnTools({
     agentToolSelectionValue: agent.builtinToolsEnabled,
     enabledToolNames,
@@ -1076,6 +1261,17 @@ export async function sendConversationMessage(params: {
       enabledBuiltinTools: resolvedToolSelection.metadataEnabledBuiltinTools,
     },
   });
+  void publishAgentSessionEvent(
+    conversationScope({ conversationId: conversation.id, messageId: assistantMessage.id, workspaceId }),
+    'message.started',
+    {
+      agentId: agent.id,
+      agentName: agent.name,
+      userMessageId: userMessage.id,
+      model: resolvedModel,
+      reasoningEffort: resolvedReasoningEffort,
+    },
+  );
 
   const transcriptRows = await db.query.conversationMessages.findMany({
     where: and(
@@ -1185,6 +1381,11 @@ export async function sendConversationMessage(params: {
         model: updatedAssistantMessage.model,
       },
     });
+    void publishAgentSessionEvent(
+      conversationScope({ conversationId: conversation.id, messageId: assistantMessage.id, workspaceId }),
+      'message.completed',
+      { content: updatedAssistantMessage.content, model: updatedAssistantMessage.model },
+    );
 
     return {
       userMessage,
@@ -1219,6 +1420,11 @@ export async function sendConversationMessage(params: {
       timestamp: new Date().toISOString(),
       data: { error: message },
     });
+    void publishAgentSessionEvent(
+      conversationScope({ conversationId: conversation.id, messageId: assistantMessage.id, workspaceId }),
+      'message.failed',
+      { error: message },
+    );
 
     throw Object.assign(new Error(message), { assistantMessage: failedAssistantMessage, userMessage });
   }

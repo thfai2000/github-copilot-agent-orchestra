@@ -120,6 +120,9 @@
               <span v-else-if="step.status === 'running'" class="flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 text-yellow-600">
                 <i class="pi pi-spin pi-spinner text-xs"></i>
               </span>
+              <span v-else-if="step.status === 'awaiting_input'" class="flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700">
+                <i class="pi pi-question-circle text-xs"></i>
+              </span>
               <span v-else-if="step.status === 'failed'" class="flex items-center justify-center w-6 h-6 rounded-full bg-red-100 text-red-600">
                 <i class="pi pi-times text-xs"></i>
               </span>
@@ -152,6 +155,7 @@
             <div class="flex items-center gap-3 flex-shrink-0">
               <span v-if="getQuotaWait(step)" class="text-xs text-yellow-700 font-medium">Waiting for quota</span>
               <span v-else-if="step.status === 'running'" class="text-xs text-yellow-600 font-medium">Running…</span>
+              <span v-else-if="step.status === 'awaiting_input'" class="text-xs text-amber-700 font-medium">Awaiting your input</span>
               <span v-if="stepDuration(step)" class="text-xs text-surface-400 font-mono">{{ stepDuration(step) }}</span>
               <Tag :value="step.status" :severity="statusSeverity(step.status)" class="text-xs" />
               <i :class="selectedStepId === step.id ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="text-surface-400 text-sm"></i>
@@ -193,11 +197,21 @@
             </div>
 
             <!-- Tab: Output -->
-            <div v-if="activeTab === 'output'" class="max-h-[500px] overflow-y-auto p-4">
-              <div v-if="!step.output" class="text-xs text-slate-500">
+            <div v-if="activeTab === 'output'" class="max-h-[500px] overflow-y-auto p-4 space-y-3">
+              <!-- Pending ask_questions form (if the agent paused waiting for user input) -->
+              <div v-if="getPendingAsks(step).length > 0" class="space-y-3">
+                <AgentAskQuestionsForm
+                  v-for="ask in getPendingAsks(step)"
+                  :key="ask.askId"
+                  :ask="ask"
+                  :submitting="!!askSubmitting[ask.askId]"
+                  @submit="(payload) => onStepAskSubmit(step.id, payload)"
+                />
+              </div>
+              <div v-if="!step.output && getPendingAsks(step).length === 0" class="text-xs text-slate-500">
                 {{ getQuotaWait(step) ? 'Waiting for quota before the prompt is sent.' : step.status === 'running' ? 'Step in progress…' : step.status === 'pending' ? 'Waiting…' : 'No output.' }}
               </div>
-              <div v-else class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div v-else-if="step.output" class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <MarkdownRenderer :content="step.output" theme="dark" />
               </div>
             </div>
@@ -398,6 +412,82 @@ onStreamEvent('execution.failed', () => {
 onStreamEvent('execution.cancelled', () => {
   refreshExec();
 });
+
+// ─── Pending ask_questions per step ───────────────────────────────────
+interface AskQuestion {
+  id: string;
+  prompt: string;
+  type: 'single_choice' | 'multi_choice' | 'free_text';
+  options?: string[];
+  allowOther?: boolean;
+  required?: boolean;
+}
+interface PendingAsk {
+  askId: string;
+  introduction?: string | null;
+  questions: AskQuestion[];
+  startedAt: string;
+}
+const pendingAsksByStep = ref<Record<string, PendingAsk[]>>({});
+const askSubmitting = reactive<Record<string, boolean>>({});
+
+function getPendingAsks(step: any): PendingAsk[] {
+  return pendingAsksByStep.value[step.id] || [];
+}
+
+onStreamEvent('step.tool.ask_questions', (data: any) => {
+  const stepId = data?.stepExecutionId;
+  const askId = data?.askId;
+  const questions = Array.isArray(data?.questions) ? data.questions : [];
+  if (!stepId || !askId || questions.length === 0) return;
+  const list = pendingAsksByStep.value[stepId] || [];
+  if (list.some((entry) => entry.askId === askId)) return;
+  pendingAsksByStep.value = {
+    ...pendingAsksByStep.value,
+    [stepId]: [...list, { askId, introduction: data?.introduction ?? null, questions, startedAt: data?.timestamp || new Date().toISOString() }],
+  };
+  // Auto-expand & switch to Output tab so the form is visible.
+  selectedStepId.value = stepId;
+  activeTab.value = 'output';
+});
+
+onStreamEvent('step.tool.ask_questions_resolved', (data: any) => {
+  const stepId = data?.stepExecutionId;
+  const askId = data?.askId;
+  if (!stepId || !askId) return;
+  const list = pendingAsksByStep.value[stepId] || [];
+  pendingAsksByStep.value = {
+    ...pendingAsksByStep.value,
+    [stepId]: list.filter((entry) => entry.askId !== askId),
+  };
+  delete askSubmitting[askId];
+});
+
+async function onStepAskSubmit(stepExecutionId: string, payload: { askId: string; answers: Record<string, unknown> }) {
+  if (askSubmitting[payload.askId]) return;
+  askSubmitting[payload.askId] = true;
+  try {
+    await $fetch('/api/agent-sessions/answer', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: {
+        contextType: 'workflow_step',
+        contextId: stepExecutionId,
+        askId: payload.askId,
+        answers: payload.answers,
+      },
+    });
+    const list = pendingAsksByStep.value[stepExecutionId] || [];
+    pendingAsksByStep.value = {
+      ...pendingAsksByStep.value,
+      [stepExecutionId]: list.filter((entry) => entry.askId !== payload.askId),
+    };
+    delete askSubmitting[payload.askId];
+  } catch (e: any) {
+    askSubmitting[payload.askId] = false;
+    toast?.add?.({ severity: 'error', summary: 'Answer Failed', detail: e?.data?.error || 'Failed to submit answers.', life: 5000 });
+  }
+}
 
 // Also poll for updates when live (as a fallback every 5s)
 let pollTimer: ReturnType<typeof setInterval> | null = null;

@@ -46,8 +46,22 @@ export function useConversationStream(conversationId: Ref<string>, options?: { e
       'conversation.message.failed',
       'conversation.tool.execution_start',
       'conversation.tool.execution_complete',
+      'conversation.tool.ask_questions',
+      'conversation.tool.ask_questions_resolved',
       'conversation.turn.started',
       'conversation.turn.completed',
+      // Unified agent.* family — same payload, namespace-agnostic.
+      'agent.turn.started',
+      'agent.turn.completed',
+      'agent.message.started',
+      'agent.message.delta',
+      'agent.message.reasoning_delta',
+      'agent.message.completed',
+      'agent.message.failed',
+      'agent.tool.execution_start',
+      'agent.tool.execution_complete',
+      'agent.tool.ask_questions',
+      'agent.tool.ask_questions_resolved',
     ];
 
     for (const type of eventTypes) {

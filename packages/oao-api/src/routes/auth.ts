@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { eq, and, desc, gt } from 'drizzle-orm';
 import { db } from '../database/index.js';
-import { users, workspaces, authProviders, passwordResetTokens } from '../database/schema.js';
+import { users, workspaces, authProviders, passwordResetTokens, adGroupMappings } from '../database/schema.js';
 import { createJwt, authMiddleware, emailSchema, passwordSchema } from '@oao/shared';
 import { authenticateLdap } from '../services/ldap-auth.js';
 import type { LdapConfig } from '../services/ldap-auth.js';
@@ -201,7 +201,9 @@ async function handleLdapLogin(c: Context, email: string, password: string) {
       const workspaceSlug = workspace?.slug ?? 'default';
 
       if (!user) {
-        // Auto-provision LDAP user
+        // JIT auto-provision LDAP user. Resolve the role via AD group mappings;
+        // when none of the user's `memberOf` DNs map, default to `creator_user`.
+        const initialRole = await resolveRoleFromAdGroups(provider.id, ldapUser.groups);
         const [newUser] = await db
           .insert(users)
           .values({
@@ -210,6 +212,7 @@ async function handleLdapLogin(c: Context, email: string, password: string) {
             name: ldapUser.name,
             authProvider: 'ldap',
             workspaceId: provider.workspaceId,
+            role: initialRole ?? 'creator_user',
           })
           .returning({ id: users.id, email: users.email, name: users.name, role: users.role, authProvider: users.authProvider, workspaceId: users.workspaceId });
         user = { ...newUser, passwordHash: null, createdAt: new Date(), updatedAt: new Date() };
@@ -252,6 +255,49 @@ async function handleLdapLogin(c: Context, email: string, password: string) {
   }
 
   return c.json({ error: 'Invalid credentials' }, 401);
+}
+
+/**
+ * Map a user's `memberOf` DN list to the highest-privilege role configured for
+ * the given LDAP auth provider. Returns null when no mapping matches, so the
+ * caller can fall back to the system default (`creator_user`).
+ *
+ * Match is case-insensitive on the DN — directory servers vary in how they
+ * preserve case for attribute names and DN components.
+ */
+async function resolveRoleFromAdGroups(
+  authProviderId: string,
+  memberOfDns: string[] | undefined,
+): Promise<'super_admin' | 'workspace_admin' | 'creator_user' | 'view_user' | null> {
+  if (!memberOfDns?.length) return null;
+  let mappings: Array<{ adGroupDn: string; role: 'super_admin' | 'workspace_admin' | 'creator_user' | 'view_user' }>;
+  try {
+    const rows = await db.query.adGroupMappings.findMany({
+      where: eq(adGroupMappings.authProviderId, authProviderId),
+    });
+    mappings = rows ?? [];
+  } catch {
+    // Defensive: a missing table or transient DB error should not block JIT login.
+    return null;
+  }
+  if (!mappings.length) return null;
+
+  const dnSet = new Set(memberOfDns.map((d) => d.toLowerCase().trim()));
+  const rolePriority: Record<string, number> = {
+    super_admin: 4,
+    workspace_admin: 3,
+    creator_user: 2,
+    view_user: 1,
+  };
+  let best: string | null = null;
+  for (const m of mappings) {
+    if (dnSet.has(m.adGroupDn.toLowerCase().trim())) {
+      if (!best || (rolePriority[m.role] ?? 0) > (rolePriority[best] ?? 0)) {
+        best = m.role;
+      }
+    }
+  }
+  return (best as 'super_admin' | 'workspace_admin' | 'creator_user' | 'view_user' | null);
 }
 
 // ── Get available auth providers for a workspace (public, no auth required) ──

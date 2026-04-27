@@ -19,6 +19,8 @@ export interface LdapUser {
   email: string;
   name: string;
   dn: string; // distinguished name for bind verification
+  /** AD/LDAP group DNs read from the user's `memberOf` attribute (case-preserved). Empty array if attribute is missing or unsupported by the server. */
+  groups: string[];
 }
 
 /**
@@ -71,7 +73,8 @@ export async function authenticateLdap(
     const { searchEntries } = await client.search(config.searchBase, {
       scope: 'sub',
       filter,
-      attributes: [config.emailAttribute, config.nameAttribute],
+      // Always also request memberOf so we can JIT-map AD groups to roles.
+      attributes: [config.emailAttribute, config.nameAttribute, 'memberOf'],
     });
 
     if (searchEntries.length === 0) {
@@ -107,9 +110,10 @@ export async function authenticateLdap(
     // Extract attributes
     const email = getAttr(entry, config.emailAttribute) ?? username;
     const name = getAttr(entry, config.nameAttribute) ?? username;
+    const groups = getAttrArray(entry, 'memberOf');
 
-    logger.info({ username, email }, 'LDAP authentication successful');
-    return { email, name, dn: userDn };
+    logger.info({ username, email, groupCount: groups.length }, 'LDAP authentication successful');
+    return { email, name, dn: userDn, groups };
   } catch (err) {
     logger.error({ error: err, url: config.url }, 'LDAP authentication error');
     throw err;
@@ -138,4 +142,22 @@ function getAttr(entry: Record<string, unknown>, attrName: string): string | und
     }
   }
   return undefined;
+}
+
+/** Extract a multi-valued attribute (e.g. memberOf) as an array of strings, case-insensitive lookup. */
+function getAttrArray(entry: Record<string, unknown>, attrName: string): string[] {
+  const collect = (raw: unknown): string[] => {
+    if (typeof raw === 'string') return [raw];
+    if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
+    return [];
+  };
+  const direct = collect(entry[attrName]);
+  if (direct.length > 0) return direct;
+  for (const [key, v] of Object.entries(entry)) {
+    if (key.toLowerCase() === attrName.toLowerCase()) {
+      const arr = collect(v);
+      if (arr.length > 0) return arr;
+    }
+  }
+  return [];
 }

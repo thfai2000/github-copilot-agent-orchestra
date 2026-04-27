@@ -121,6 +121,7 @@ describe('authenticateLdap', () => {
       email: 'alice@example.com',
       name: 'Alice Example',
       dn: 'uid=alice,ou=users,dc=example,dc=com',
+      groups: [],
     });
     expect(mockClients).toHaveLength(2);
     expect(mockClients[0].binds[0]).toEqual({
@@ -191,7 +192,7 @@ describe('authenticateLdap', () => {
     };
     const { authenticateLdap } = await import('../src/services/ldap-auth.js');
     const result = await authenticateLdap(baseConfig(), 'bob', 'pw');
-    expect(result).toEqual({ email: 'bob', name: 'bob', dn: 'uid=bob,ou=users' });
+    expect(result).toEqual({ email: 'bob', name: 'bob', dn: 'uid=bob,ou=users', groups: [] });
   });
 
   it('reads attributes case-insensitively', async () => {

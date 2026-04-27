@@ -63,6 +63,19 @@ authProvidersRouter.post('/', async (c) => {
   const body = createSchema.parse(await c.req.json());
   const config = prepareConfig(body.config);
 
+  // Enforce one provider per (workspace, providerType). Both Database and LDAP
+  // are singleton-style providers — having two of the same type is ambiguous on
+  // the login page and forces unnecessary fallback.
+  const existing = await db.query.authProviders.findFirst({
+    where: and(
+      eq(authProviders.workspaceId, user.workspaceId!),
+      eq(authProviders.providerType, body.providerType),
+    ),
+  });
+  if (existing) {
+    return c.json({ error: `An auth provider of type "${body.providerType}" already exists in this workspace.` }, 409);
+  }
+
   const [provider] = await db
     .insert(authProviders)
     .values({

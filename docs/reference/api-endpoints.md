@@ -511,8 +511,35 @@ Event types:
 - `conversation.message.failed`
 - `conversation.tool.execution_start`
 - `conversation.tool.execution_complete`
+- `conversation.tool.ask_questions`
+- `conversation.tool.ask_questions_resolved`
 - `conversation.turn.started`
 - `conversation.turn.completed`
+
+### `POST /api/conversations/:id/answer-questions`
+
+Submit the user's answers in response to a `conversation.tool.ask_questions` SSE event. The pending agent tool call resolves with the supplied answers and the conversation continues.
+
+**Auth**: JWT/PAT
+
+Request body:
+
+```json
+{
+  "askId": "<uuid from the ask_questions SSE event>",
+  "answers": {
+    "<questionId>": "free-text answer",
+    "<questionId>": ["choice-a", "choice-b"],
+    "<questionId>": { "value": "__other__", "other": "user-supplied free-text" }
+  }
+}
+```
+
+- For `single_choice` questions, send the chosen option string. If the user picked "Other", send `{ "value": "__other__", "other": "..." }`.
+- For `multi_choice` questions, send an array of option strings. If the user picked "Other", send `{ "value": ["a", "b"], "other": "..." }` and omit `__other__` from `value`.
+- For `free_text` questions, send the raw string.
+
+Returns `404` if the `askId` is unknown (already answered or timed out), `409` on a race condition.
 
 ---
 
@@ -1104,17 +1131,27 @@ Requires `workspace_admin` or `super_admin` role.
 | `GET` | `/api/admin/users/:id` | Get user detail |
 | `PUT` | `/api/admin/users/:id/role` | Change role (`workspace_admin`, `creator_user`, `view_user`) |
 
-### Models
+### Models (User-Scoped, v1.37.0)
+
+As of v1.37.0 the model registry is **user-scoped**, not workspace-scoped. Each user owns their own list of models. Authentication via the standard `Authorization: Bearer <jwt>` header is sufficient — no admin role is required.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/admin/models` | List workspace models |
-| `POST` | `/api/admin/models` | Create model (`name`, `provider`, `providerType`, custom provider fields, `creditCost`, `isActive`) |
-| `PUT` | `/api/admin/models/:id` | Update model |
-| `DELETE` | `/api/admin/models/:id` | Delete model |
+| `GET` | `/api/models` | List **active** models for the current user (used by chat/workflow runtimes) |
+| `GET` | `/api/models/all` | List all models (active + inactive) for the current user |
+| `GET` | `/api/models/:id` | Get a single model owned by the current user |
+| `POST` | `/api/models` | Create a custom model |
+| `PUT` | `/api/models/:id` | Update a model (catalog rows lock most fields) |
+| `DELETE` | `/api/models/:id` | Delete a model |
+| `POST` | `/api/models/sync-catalog` | Pull GitHub Models `/catalog/models` into the user's registry. Body: `{ url?, githubTokenCredentialId? }` |
+
+The `githubTokenCredentialId` parameter is the UUID of a user-scope credential variable (sub-type `github_token`). When omitted the server falls back to the `DEFAULT_LLM_API_KEY` / `GITHUB_TOKEN` env vars.
+
+Catalog rows expose additional metadata (filled by sync, never overwritten by users):
+`rateLimitTier` (low/high — closest signal to "premium"), `tags[]`, `capabilities[]`, `maxInputTokens`, `maxOutputTokens`, `htmlUrl`, `modelVersion`. The GitHub Models catalog endpoint does **not** return any explicit premium/credit/billing field.
 
 ```bash
-curl -X POST http://localhost:4002/api/admin/models \
+curl -X POST http://localhost:4002/api/models \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{

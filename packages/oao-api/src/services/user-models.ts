@@ -21,24 +21,24 @@ export interface ResolvedSessionProviderConfig {
   };
 }
 
-export interface ResolvedWorkspaceModelSession {
+export interface ResolvedUserModelSession {
   modelRecord: typeof models.$inferSelect;
   modelName: string;
   provider: ResolvedSessionProviderConfig | null;
 }
 
-export async function listWorkspaceActiveModels(workspaceId: string) {
+export async function listUserActiveModels(userId: string) {
   return db.query.models.findMany({
-    where: and(eq(models.workspaceId, workspaceId), eq(models.isActive, true)),
+    where: and(eq(models.userId, userId), eq(models.isActive, true)),
     orderBy: asc(models.name),
   });
 }
 
-export async function getWorkspaceModelRecord(params: {
-  workspaceId: string;
+export async function getUserModelRecord(params: {
+  userId: string;
   requestedModel: string;
 }) {
-  const activeModels = await listWorkspaceActiveModels(params.workspaceId);
+  const activeModels = await listUserActiveModels(params.userId);
   return activeModels.find((model) => model.name === params.requestedModel) ?? null;
 }
 
@@ -53,7 +53,7 @@ function buildSessionProviderConfig(params: {
   }
 
   if (!modelRecord.customProviderType || !modelRecord.customBaseUrl) {
-    throw new Error(`Model ${modelRecord.name} is missing required custom provider settings. Update the model record in Admin > Models.`);
+    throw new Error(`Model ${modelRecord.name} is missing required custom provider settings. Update the model record in Models.`);
   }
 
   const provider: ResolvedSessionProviderConfig = {
@@ -92,12 +92,12 @@ function buildSessionProviderConfig(params: {
   return provider;
 }
 
-export async function resolveWorkspaceActiveModelName(params: {
-  workspaceId: string;
+export async function resolveUserActiveModelName(params: {
+  userId: string;
   requestedModel?: string | null;
   envDefaultModel?: string | null;
 }) {
-  const activeModels = await listWorkspaceActiveModels(params.workspaceId);
+  const activeModels = await listUserActiveModels(params.userId);
   const requestedModel = params.requestedModel?.trim() || null;
   const envDefaultModel = params.envDefaultModel?.trim() || null;
 
@@ -106,7 +106,9 @@ export async function resolveWorkspaceActiveModelName(params: {
       return requestedModel;
     }
 
-    throw new Error(`Model ${requestedModel} is not active in this workspace. Choose an active model from Admin > Models or clear the override.`);
+    throw new Error(
+      `Model ${requestedModel} is not active for this user. Choose an active model from Models or clear the override.`,
+    );
   }
 
   if (envDefaultModel && activeModels.some((model) => model.name === envDefaultModel)) {
@@ -117,28 +119,28 @@ export async function resolveWorkspaceActiveModelName(params: {
     return activeModels[0].name;
   }
 
-  throw new Error('No active models are configured for this workspace. Add one in Admin > Models before sending a conversation turn.');
+  throw new Error('No active models are configured for this user. Add one in Models before sending a conversation turn.');
 }
 
-export async function resolveWorkspaceModelSession(params: {
-  workspaceId: string;
+export async function resolveUserModelSession(params: {
+  userId: string;
   requestedModel?: string | null;
   envDefaultModel?: string | null;
   authToken?: string | null;
-}): Promise<ResolvedWorkspaceModelSession> {
-  const modelName = await resolveWorkspaceActiveModelName({
-    workspaceId: params.workspaceId,
+}): Promise<ResolvedUserModelSession> {
+  const modelName = await resolveUserActiveModelName({
+    userId: params.userId,
     requestedModel: params.requestedModel,
     envDefaultModel: params.envDefaultModel,
   });
 
-  const modelRecord = await getWorkspaceModelRecord({
-    workspaceId: params.workspaceId,
+  const modelRecord = await getUserModelRecord({
+    userId: params.userId,
     requestedModel: modelName,
   });
 
   if (!modelRecord) {
-    throw new Error(`Model ${modelName} is not active in this workspace. Choose an active model from Admin > Models.`);
+    throw new Error(`Model ${modelName} is not active for this user. Choose an active model from Models.`);
   }
 
   return {

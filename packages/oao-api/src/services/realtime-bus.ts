@@ -37,8 +37,27 @@ export interface RealtimeEvent {
     | 'conversation.message.failed'
     | 'conversation.tool.execution_start'
     | 'conversation.tool.execution_complete'
+    | 'conversation.tool.ask_questions'
+    | 'conversation.tool.ask_questions_resolved'
     | 'conversation.turn.started'
-    | 'conversation.turn.completed';
+    | 'conversation.turn.completed'
+    // ── Unified agent session events (parallel to legacy step.* / conversation.*) ──
+    // Carry { contextType: 'conversation' | 'workflow_step', contextId, parentId? }
+    // in `data` so the shared frontend stream can be context-agnostic.
+    | 'agent.turn.started'
+    | 'agent.turn.completed'
+    | 'agent.message.started'
+    | 'agent.message.delta'
+    | 'agent.message.reasoning_delta'
+    | 'agent.message.completed'
+    | 'agent.message.failed'
+    | 'agent.tool.execution_start'
+    | 'agent.tool.execution_complete'
+    | 'agent.tool.ask_questions'
+    | 'agent.tool.ask_questions_resolved'
+    // ── Workflow-step granular events (mirror conversation.message.* / .tool.*) ──
+    | 'step.tool.ask_questions'
+    | 'step.tool.ask_questions_resolved';
   /** Workflow execution ID */
   executionId?: string;
   /** Workflow ID (for listing page filtering) */

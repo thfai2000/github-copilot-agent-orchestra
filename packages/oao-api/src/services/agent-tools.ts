@@ -3,6 +3,7 @@
 import { defineTool, type Tool } from '@github/copilot-sdk';
 import { z } from 'zod';
 import { eq, and, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { createLogger, encrypt } from '@oao/shared';
 import { db } from '../database/index.js';
 import {
@@ -14,6 +15,9 @@ import { renderTemplate } from './jinja-renderer.js';
 import { TriggerServiceError } from './trigger-errors.js';
 import { creatableTriggerTypeSchema } from './trigger-definitions.js';
 import { createWorkflowTrigger, deleteWorkflowTrigger, updateWorkflowTrigger } from './trigger-manager.js';
+import { publishRealtimeEvent } from './realtime-bus.js';
+import { registerQuestion } from './question-registry.js';
+import { conversationScope, workflowStepScope, publishAgentSessionEvent, type AgentSessionScope } from './agent-session-events.js';
 import {
   captureAgentHistoricalVersion,
   captureWorkflowHistoricalVersion,
@@ -52,7 +56,16 @@ async function bumpAgentVersion(agentId: string) {
 export interface AgentToolContext {
   agentId: string;
   workflowId: string;
+  /**
+   * Coarse execution scope identifier. For conversations: `conversation:<id>`.
+   * For workflow steps: the workflowExecutionId (no prefix). Legacy field.
+   */
   executionId?: string;
+  /**
+   * Step execution id when running inside a workflow step. Used by tools that
+   * need step-level scoping (e.g. ask_questions).
+   */
+  stepExecutionId?: string;
   userId?: string;
   workspaceId?: string;
 }
@@ -911,6 +924,167 @@ export function createAgentTools(
             return { error: `Request timed out after ${args.timeout_ms}ms` };
           }
           return { error: err instanceof Error ? err.message : 'HTTP request failed' };
+        }
+      },
+    });
+
+    // ── Conversation Tools ────────────────────────────────────────────
+
+    toolMap['ask_questions'] = defineTool('ask_questions', {
+      description:
+        'Ask the user one or more clarifying questions and wait for the answers before continuing. ' +
+        'Each question may be a single-choice, multi-choice, or free-text input. ' +
+        'For choice questions, set allowOther:true to let the user pick "Other" and supply a free-text value. ' +
+        'Use this when you genuinely need information from the user that you cannot infer from context. ' +
+        'Available inside interactive conversations AND workflow steps (the workflow step will pause in `awaiting_input` status until the user responds or the timeout elapses).',
+      parameters: z.object({
+        questions: z.array(z.object({
+          id: z.string().min(1).describe('Stable identifier returned with the answer (e.g. "channel").'),
+          prompt: z.string().min(1).describe('Question text shown to the user.'),
+          type: z.enum(['single_choice', 'multi_choice', 'free_text']).describe('Input style for this question.'),
+          options: z.array(z.string().min(1)).optional().describe('Allowed choices (required for single_choice / multi_choice).'),
+          allowOther: z.boolean().optional().describe('If true, render an "Other" option with free-text input (choice questions only).'),
+          required: z.boolean().optional().describe('If true (default), the user must provide an answer. Free-text questions may set false to allow skipping.'),
+        })).min(1).max(10),
+        introduction: z.string().optional().describe('Short message shown above the form to set context.'),
+        timeoutSeconds: z.number().int().min(15).max(3600).optional().describe('How long to wait for the user (default 600s).'),
+      }),
+      handler: async ({
+        questions,
+        introduction,
+        timeoutSeconds,
+      }: {
+        questions: Array<{ id: string; prompt: string; type: 'single_choice' | 'multi_choice' | 'free_text'; options?: string[]; allowOther?: boolean; required?: boolean }>;
+        introduction?: string;
+        timeoutSeconds?: number;
+      }) => {
+        const rawExecutionId = context?.executionId ?? '';
+        const stepExecutionId = context?.stepExecutionId;
+
+        // Determine scope: conversation vs workflow step.
+        let scopeKind: 'conversation' | 'workflow_step';
+        let scopeId: string;
+        let registryKey: string;
+        let agentScope: AgentSessionScope;
+        if (rawExecutionId.startsWith('conversation:')) {
+          scopeKind = 'conversation';
+          scopeId = rawExecutionId.slice('conversation:'.length);
+          if (!scopeId) return { error: 'No conversation context available for ask_questions.' };
+          registryKey = scopeId;
+          agentScope = conversationScope({
+            conversationId: scopeId,
+            workspaceId: context?.workspaceId,
+          });
+        } else if (stepExecutionId) {
+          scopeKind = 'workflow_step';
+          scopeId = stepExecutionId;
+          registryKey = `step:${stepExecutionId}`;
+          agentScope = workflowStepScope({
+            stepExecutionId,
+            workflowExecutionId: rawExecutionId,
+            workflowId: context?.workflowId,
+            workspaceId: context?.workspaceId,
+          });
+        } else {
+          return { error: 'ask_questions requires either a conversation or workflow step execution context.' };
+        }
+
+        // Validate per-question shape (zod handled basic types; enforce options for choices).
+        for (const question of questions) {
+          if ((question.type === 'single_choice' || question.type === 'multi_choice') && (!question.options || question.options.length === 0)) {
+            return { error: `Question "${question.id}" of type ${question.type} requires a non-empty options array.` };
+          }
+        }
+
+        const askId = randomUUID();
+        const timeoutMs = (timeoutSeconds ?? 600) * 1000;
+        const promise = registerQuestion(registryKey, askId, timeoutMs);
+
+        // Mark step as awaiting_input (workflow steps only) so the orchestrator
+        // can pause its allocation/timeout clock.
+        if (scopeKind === 'workflow_step') {
+          try {
+            const { db } = await import('../database/index.js');
+            const { stepExecutions } = await import('../database/schema.js');
+            const { eq } = await import('drizzle-orm');
+            await db.update(stepExecutions).set({ status: 'awaiting_input' }).where(eq(stepExecutions.id, scopeId));
+          } catch (err) {
+            logger.warn({ err, stepExecutionId: scopeId }, 'Failed to mark step as awaiting_input');
+          }
+        }
+
+        // Legacy event (back-compat).
+        await publishRealtimeEvent({
+          type: scopeKind === 'conversation' ? 'conversation.tool.ask_questions' : 'step.tool.ask_questions',
+          conversationId: scopeKind === 'conversation' ? scopeId : undefined,
+          executionId: scopeKind === 'workflow_step' ? rawExecutionId : undefined,
+          stepExecutionId: scopeKind === 'workflow_step' ? scopeId : undefined,
+          workflowId: context?.workflowId,
+          workspaceId: context?.workspaceId,
+          timestamp: new Date().toISOString(),
+          data: { askId, introduction: introduction ?? null, questions, timeoutMs },
+        });
+        // Unified agent.* event.
+        await publishAgentSessionEvent(agentScope, 'tool.ask_questions', {
+          askId,
+          introduction: introduction ?? null,
+          questions,
+          timeoutMs,
+        });
+
+        logger.info({ scopeKind, scopeId, askId, count: questions.length }, 'Tool: ask_questions awaiting user input');
+
+        try {
+          const answers = await promise;
+          await publishRealtimeEvent({
+            type: scopeKind === 'conversation' ? 'conversation.tool.ask_questions_resolved' : 'step.tool.ask_questions_resolved',
+            conversationId: scopeKind === 'conversation' ? scopeId : undefined,
+            executionId: scopeKind === 'workflow_step' ? rawExecutionId : undefined,
+            stepExecutionId: scopeKind === 'workflow_step' ? scopeId : undefined,
+            workflowId: context?.workflowId,
+            workspaceId: context?.workspaceId,
+            timestamp: new Date().toISOString(),
+            data: { askId, answered: true },
+          });
+          await publishAgentSessionEvent(agentScope, 'tool.ask_questions_resolved', { askId, answered: true });
+          if (scopeKind === 'workflow_step') {
+            try {
+              const { db } = await import('../database/index.js');
+              const { stepExecutions } = await import('../database/schema.js');
+              const { eq } = await import('drizzle-orm');
+              await db.update(stepExecutions).set({ status: 'running' }).where(eq(stepExecutions.id, scopeId));
+            } catch (err) {
+              logger.warn({ err, stepExecutionId: scopeId }, 'Failed to mark step back as running after ask_questions resolved');
+            }
+          }
+          return { askId, answers };
+        } catch (err) {
+          await publishRealtimeEvent({
+            type: scopeKind === 'conversation' ? 'conversation.tool.ask_questions_resolved' : 'step.tool.ask_questions_resolved',
+            conversationId: scopeKind === 'conversation' ? scopeId : undefined,
+            executionId: scopeKind === 'workflow_step' ? rawExecutionId : undefined,
+            stepExecutionId: scopeKind === 'workflow_step' ? scopeId : undefined,
+            workflowId: context?.workflowId,
+            workspaceId: context?.workspaceId,
+            timestamp: new Date().toISOString(),
+            data: { askId, answered: false, error: err instanceof Error ? err.message : 'unknown error' },
+          });
+          await publishAgentSessionEvent(agentScope, 'tool.ask_questions_resolved', {
+            askId,
+            answered: false,
+            error: err instanceof Error ? err.message : 'unknown error',
+          });
+          if (scopeKind === 'workflow_step') {
+            try {
+              const { db } = await import('../database/index.js');
+              const { stepExecutions } = await import('../database/schema.js');
+              const { eq } = await import('drizzle-orm');
+              await db.update(stepExecutions).set({ status: 'running' }).where(eq(stepExecutions.id, scopeId));
+            } catch (innerErr) {
+              logger.warn({ err: innerErr, stepExecutionId: scopeId }, 'Failed to mark step back as running after ask_questions failure');
+            }
+          }
+          return { askId, error: err instanceof Error ? err.message : 'ask_questions failed.' };
         }
       },
     });
